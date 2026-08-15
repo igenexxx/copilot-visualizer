@@ -106,6 +106,9 @@ class App {
               <span id="hud-mcp" class="hud-val">0</span>
             </div>
           </div>
+
+          <!-- Elevator Floor Selector Bar -->
+          <div id="floor-selector-bar" class="floor-selector-bar"></div>
         </main>
 
         <aside class="sidebar">
@@ -191,8 +194,41 @@ class App {
       this.renderInspector(`🕸️ ${node.label}`, `Group: ${node.group.toUpperCase()} | ID: ${node.id}`, { sublabel: node.sublabel, timestamp: node.timestamp });
     };
 
+    this.workshopCanvas.onFloorChanged = () => {
+      this.renderFloorSelector();
+    };
+
     this.workshopCanvas.start();
     this.graphCanvas.start();
+    this.renderFloorSelector();
+  }
+
+  private renderFloorSelector(): void {
+    const bar = document.getElementById('floor-selector-bar');
+    if (!bar) return;
+
+    bar.innerHTML = '';
+
+    // 1. Tower Overview button
+    const allBtn = document.createElement('button');
+    allBtn.className = `floor-btn ${this.workshopCanvas.activeFloorIndex === 'all' ? 'active' : ''}`;
+    allBtn.innerHTML = `<span>🏢</span><span>Tower View (${this.workshopCanvas.floors.length}F)</span>`;
+    allBtn.onclick = () => {
+      this.workshopCanvas.setFloorView('all');
+    };
+    bar.appendChild(allBtn);
+
+    // 2. Individual Floor buttons
+    this.workshopCanvas.floors.forEach((fl, idx) => {
+      const flBtn = document.createElement('button');
+      flBtn.className = `floor-btn ${this.workshopCanvas.activeFloorIndex === idx ? 'active' : ''}`;
+      flBtn.style.color = fl.color;
+      flBtn.innerHTML = `<span>●</span><span>${fl.name}</span>`;
+      flBtn.onclick = () => {
+        this.workshopCanvas.setFloorView(idx);
+      };
+      bar.appendChild(flBtn);
+    });
   }
 
   private bindControls(): void {
@@ -391,7 +427,7 @@ class App {
     if (event.type === 'file.write') this.stats.filesWritten++;
     if (event.type === 'mcp.call') this.stats.mcpCalls++;
     if (event.type === 'command.run' || event.type === 'command.output') this.stats.testsRun++;
-    this.stats.activeAgents = Math.max(1, this.workshopCanvas.workers.size);
+    this.stats.activeAgents = Math.max(1, this.workshopCanvas.floors.reduce((acc, fl) => acc + fl.workers.size, 0));
 
     this.updateHUD();
 

@@ -9,6 +9,19 @@ interface Particle {
   size: number;
   life: number;
   maxLife: number;
+  floorLevel: number;
+}
+
+export interface FactoryFloor {
+  id: string;
+  level: number; // 0 = 1F Ground, 1 = 2F, 2 = 3F...
+  agentId: string;
+  name: string;
+  role: string;
+  color: string;
+  workstations: Map<StationType, Workstation>;
+  workers: Map<string, WorkerAgent>;
+  active: boolean;
 }
 
 export class WorkshopCanvas {
@@ -16,23 +29,28 @@ export class WorkshopCanvas {
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
 
-  private tileWidth = 56;
-  private tileHeight = 28;
-  private gridWidth = 13;
-  private gridHeight = 13;
+  private tileWidth = 52;
+  private tileHeight = 26;
+  private gridWidth = 11;
+  private gridHeight = 11;
+  private floorElevationStep = 170; // vertical separation between stacked floors in tower mode
 
-  public workstations: Map<StationType, Workstation> = new Map();
-  public workers: Map<string, WorkerAgent> = new Map();
+  public floors: FactoryFloor[] = [];
+  public activeFloorIndex: number | 'all' = 'all'; // 'all' for full tower overview, or floor index (0, 1, 2)
   private particles: Particle[] = [];
+
   private conveyorOffset = 0;
   private radarAngle = 0;
+  private elevatorCabLevel = 0;
+  private elevatorTargetLevel = 0;
 
   public selectedStation: StationType | null = null;
   public selectedAgent: string | null = null;
-  public onSelectElement?: (type: 'station' | 'agent', data: any) => void;
+  public onSelectElement?: (type: 'station' | 'agent' | 'floor', data: any) => void;
+  public onFloorChanged?: (floorIndex: number | 'all') => void;
 
   // Camera Pan & Zoom
-  public zoom = 1.0;
+  public zoom = 0.9;
   public panX = 0;
   public panY = 0;
   private isPanning = false;
@@ -41,25 +59,26 @@ export class WorkshopCanvas {
 
   private mouseX = 0;
   private mouseY = 0;
-  private hoveredStation: StationType | null = null;
+  private hoveredStation: { station: StationType; floor: number } | null = null;
+  private hoveredFloorLevel: number | null = null;
   public emergencyStopActive = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
-    this.initWorkstations();
-    this.initWorkers();
+    this.initDefaultFloors();
     this.setupEventListeners();
     this.resize();
   }
 
-  private initWorkstations(): void {
-    const stations: Workstation[] = [
+  private createDefaultStations(level: number): Map<StationType, Workstation> {
+    const stations = new Map<StationType, Workstation>();
+    const list: Workstation[] = [
       {
         type: 'foreman_desk',
-        name: 'Foreman Command Desk',
-        gridX: 6,
-        gridY: 6,
+        name: level === 0 ? 'Master Command Desk' : `Subagent Desk ${level}F`,
+        gridX: 5,
+        gridY: 5,
         color: '#f59e0b',
         description: 'Orchestration, planning & blueprint architecture',
         active: false,
@@ -68,9 +87,9 @@ export class WorkshopCanvas {
       },
       {
         type: 'filing_vault',
-        name: 'Codebase Filing Vault',
+        name: 'Codebase Vault',
         gridX: 2,
-        gridY: 3,
+        gridY: 2,
         color: '#3b82f6',
         description: 'File inspections, reading & document navigation',
         active: false,
@@ -79,9 +98,9 @@ export class WorkshopCanvas {
       },
       {
         type: 'search_radar',
-        name: 'Grep & Search Radar',
-        gridX: 3,
-        gridY: 10,
+        name: 'Search Radar',
+        gridX: 2,
+        gridY: 8,
         color: '#06b6d4',
         description: 'Codebase symbol index & pattern scanning',
         active: false,
@@ -91,8 +110,8 @@ export class WorkshopCanvas {
       {
         type: 'cnc_lathe',
         name: 'CNC Machining Lathe',
-        gridX: 10,
-        gridY: 3,
+        gridX: 8,
+        gridY: 2,
         color: '#ec4899',
         description: 'Code forging, patch editing & file modification',
         active: false,
@@ -102,8 +121,8 @@ export class WorkshopCanvas {
       {
         type: 'test_furnace',
         name: 'Test Range & Furnace',
-        gridX: 10,
-        gridY: 10,
+        gridX: 8,
+        gridY: 8,
         color: '#10b981',
         description: 'Command execution, test suites & build verification',
         active: false,
@@ -112,9 +131,9 @@ export class WorkshopCanvas {
       },
       {
         type: 'phone_booth',
-        name: 'MCP Dispatch Booth',
-        gridX: 2,
-        gridY: 7,
+        name: 'MCP Dispatch',
+        gridX: 1,
+        gridY: 5,
         color: '#a855f7',
         description: 'External MCP Server bridges & remote RPC phone lines',
         active: false,
@@ -123,20 +142,20 @@ export class WorkshopCanvas {
       },
       {
         type: 'conveyor',
-        name: 'Shipping Conveyor',
-        gridX: 11,
-        gridY: 7,
+        name: 'Conveyor & Elevator',
+        gridX: 9,
+        gridY: 5,
         color: '#14b8a6',
-        description: 'Output transit, PR commits & finished artifact dock',
+        description: 'Inter-floor transport & shipping dock',
         active: false,
         pulseTime: 0,
         itemsCount: 0,
       },
       {
         type: 'security_gate',
-        name: 'Security Gate & Barrier',
-        gridX: 6,
-        gridY: 11,
+        name: 'Security Gate',
+        gridX: 5,
+        gridY: 9,
         color: '#ef4444',
         description: 'Human-in-the-Loop approval gate & checkpoint barrier',
         active: false,
@@ -145,22 +164,98 @@ export class WorkshopCanvas {
       },
     ];
 
-    stations.forEach((st) => this.workstations.set(st.type, st));
+    list.forEach((st) => stations.set(st.type, st));
+    return stations;
   }
 
-  private initWorkers(): void {
-    const foreman: WorkerAgent = {
+  private initDefaultFloors(): void {
+    // 1F: Ground Floor (Master Foreman)
+    const groundFloor: FactoryFloor = {
+      id: 'floor-0',
+      level: 0,
+      agentId: 'agent-foreman',
+      name: '1F: Master Orchestrator',
+      role: 'foreman',
+      color: '#f59e0b',
+      workstations: this.createDefaultStations(0),
+      workers: new Map(),
+      active: true,
+    };
+
+    const foremanWorker: WorkerAgent = {
       id: 'agent-foreman',
       name: 'Foreman Alex',
       role: 'foreman',
-      x: 6,
-      y: 6,
-      targetX: 6,
-      targetY: 6,
+      x: 5,
+      y: 5,
+      targetX: 5,
+      targetY: 5,
       state: 'idle',
       color: '#f59e0b',
     };
-    this.workers.set(foreman.id, foreman);
+    groundFloor.workers.set(foremanWorker.id, foremanWorker);
+    this.floors.push(groundFloor);
+  }
+
+  public getOrCreateFloorForAgent(agentId: string, role: string = 'crafter'): FactoryFloor {
+    for (const fl of this.floors) {
+      if (fl.agentId === agentId) return fl;
+    }
+
+    // Spawn new floor in the tower!
+    const newLevel = this.floors.length;
+    const colors = ['#06b6d4', '#ec4899', '#10b981', '#a855f7', '#38bdf8'];
+    const floorColor = colors[newLevel % colors.length];
+
+    const newFloor: FactoryFloor = {
+      id: `floor-${newLevel}`,
+      level: newLevel,
+      agentId: agentId,
+      name: `${newLevel + 1}F: ${role.toUpperCase()} WORKSHOP`,
+      role: role,
+      color: floorColor,
+      workstations: this.createDefaultStations(newLevel),
+      workers: new Map(),
+      active: true,
+    };
+
+    const worker: WorkerAgent = {
+      id: agentId,
+      name: `${role.toUpperCase()} ${agentId.slice(-4)}`,
+      role: role as any,
+      x: 5,
+      y: 5,
+      targetX: 5,
+      targetY: 5,
+      state: 'working',
+      color: floorColor,
+    };
+    newFloor.workers.set(worker.id, worker);
+    this.floors.push(newFloor);
+
+    // Animate elevator dispatching to new floor
+    this.elevatorTargetLevel = newLevel;
+
+    if (this.onFloorChanged) {
+      this.onFloorChanged(this.activeFloorIndex);
+    }
+    return newFloor;
+  }
+
+  public setFloorView(floorIndex: number | 'all'): void {
+    this.activeFloorIndex = floorIndex;
+    if (floorIndex === 'all') {
+      this.zoom = Math.max(0.6, 0.9 - this.floors.length * 0.08);
+      this.panX = 0;
+      this.panY = (this.floors.length - 1) * 60;
+    } else {
+      this.zoom = 1.05;
+      this.panX = 0;
+      this.panY = 0;
+    }
+    if (this.onFloorChanged) {
+      this.onFloorChanged(this.activeFloorIndex);
+    }
   }
 
   private setupEventListeners(): void {
@@ -169,7 +264,7 @@ export class WorkshopCanvas {
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-      const newZoom = Math.max(0.4, Math.min(2.5, this.zoom * zoomFactor));
+      const newZoom = Math.max(0.3, Math.min(2.5, this.zoom * zoomFactor));
 
       const rect = this.canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
@@ -214,11 +309,17 @@ export class WorkshopCanvas {
 
     this.canvas.addEventListener('click', () => {
       if (this.hoveredStation) {
-        this.selectedStation = this.hoveredStation;
-        const station = this.workstations.get(this.hoveredStation);
-        if (this.onSelectElement && station) {
-          this.onSelectElement('station', station);
+        this.selectedStation = this.hoveredStation.station;
+        const floor = this.floors[this.hoveredStation.floor];
+        if (floor) {
+          const station = floor.workstations.get(this.hoveredStation.station);
+          if (this.onSelectElement && station) {
+            this.onSelectElement('station', station);
+          }
         }
+      } else if (this.activeFloorIndex === 'all' && this.hoveredFloorLevel !== null) {
+        // Clicking floor in tower mode selects that floor!
+        this.setFloorView(this.hoveredFloorLevel);
       }
     });
   }
@@ -232,14 +333,16 @@ export class WorkshopCanvas {
     this.ctx.scale(dpr, dpr);
   }
 
-  public isoToScreen(gx: number, gy: number, gz: number = 0): { x: number; y: number } {
+  public isoToScreen(gx: number, gy: number, floorLevel: number = 0, gz: number = 0): { x: number; y: number } {
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
     const originX = width / 2;
-    const originY = height / 2 - 30;
+    const originY = height / 2 + (this.activeFloorIndex === 'all' ? (this.floors.length - 1) * 60 : 0);
+
+    const verticalFloorOffset = this.activeFloorIndex === 'all' ? floorLevel * this.floorElevationStep : 0;
 
     const baseScreenX = originX + (gx - gy) * (this.tileWidth / 2);
-    const baseScreenY = originY + (gx + gy) * (this.tileHeight / 2) - gz;
+    const baseScreenY = originY + (gx + gy) * (this.tileHeight / 2) - verticalFloorOffset - gz;
 
     return {
       x: baseScreenX * this.zoom + this.panX + (1 - this.zoom) * originX,
@@ -248,27 +351,30 @@ export class WorkshopCanvas {
   }
 
   public handleEvent(evt: VisualizerEvent): void {
-    // 1. Update or spawn agent
-    let worker = this.workers.get(evt.agentId);
+    // 1. Determine Floor for agent
+    const floor = this.getOrCreateFloorForAgent(evt.agentId, evt.agentRole || 'crafter');
+    this.elevatorTargetLevel = floor.level;
+
+    // 2. Find or update worker on this floor
+    let worker = floor.workers.get(evt.agentId);
     if (!worker) {
-      const colors = ['#ec4899', '#06b6d4', '#10b981', '#a855f7'];
       worker = {
         id: evt.agentId,
-        name: evt.agentRole ? `${evt.agentRole.toUpperCase()} ${evt.agentId.slice(-4)}` : 'Specialist Agent',
-        role: evt.agentRole || 'crafter',
-        x: 12,
-        y: 6, // walk in from workshop entrance
-        targetX: 6,
-        targetY: 6,
+        name: `${(evt.agentRole || 'agent').toUpperCase()} ${evt.agentId.slice(-4)}`,
+        role: (evt.agentRole || 'crafter') as any,
+        x: 10,
+        y: 5,
+        targetX: 5,
+        targetY: 5,
         state: 'walking',
-        color: colors[this.workers.size % colors.length],
+        color: floor.color,
       };
-      this.workers.set(worker.id, worker);
+      floor.workers.set(worker.id, worker);
     }
 
-    // 2. Route worker to station if specified
-    if (evt.station && this.workstations.has(evt.station)) {
-      const targetStation = this.workstations.get(evt.station)!;
+    // 3. Route worker to station on this floor
+    if (evt.station && floor.workstations.has(evt.station)) {
+      const targetStation = floor.workstations.get(evt.station)!;
       worker.targetX = targetStation.gridX;
       worker.targetY = targetStation.gridY;
       worker.currentStation = evt.station;
@@ -279,7 +385,7 @@ export class WorkshopCanvas {
       targetStation.lastEvent = evt;
       targetStation.itemsCount++;
 
-      this.spawnStationEffects(evt.station, targetStation.gridX, targetStation.gridY);
+      this.spawnStationEffects(evt.station, targetStation.gridX, targetStation.gridY, floor.level);
     }
 
     // Set speech bubble
@@ -290,8 +396,10 @@ export class WorkshopCanvas {
 
     if (evt.type === 'emergency.stop') {
       this.emergencyStopActive = evt.payload?.active === true;
-      for (const w of this.workers.values()) {
-        w.state = this.emergencyStopActive ? 'stopped' : 'idle';
+      for (const fl of this.floors) {
+        for (const w of fl.workers.values()) {
+          w.state = this.emergencyStopActive ? 'stopped' : 'idle';
+        }
       }
     } else if (evt.type === 'mcp.call' || evt.type === 'mcp.response') {
       worker.state = 'on_phone';
@@ -302,10 +410,10 @@ export class WorkshopCanvas {
     }
   }
 
-  private spawnStationEffects(station: StationType, gx: number, gy: number): void {
-    const pos = this.isoToScreen(gx, gy, 15);
+  private spawnStationEffects(station: StationType, gx: number, gy: number, floorLevel: number): void {
+    const pos = this.isoToScreen(gx, gy, floorLevel, 15);
     if (station === 'cnc_lathe') {
-      for (let i = 0; i < 18; i++) {
+      for (let i = 0; i < 16; i++) {
         this.particles.push({
           x: pos.x,
           y: pos.y,
@@ -315,10 +423,11 @@ export class WorkshopCanvas {
           size: Math.random() * 3 + 1,
           life: 1.0,
           maxLife: 1.0,
+          floorLevel,
         });
       }
     } else if (station === 'test_furnace') {
-      for (let i = 0; i < 14; i++) {
+      for (let i = 0; i < 12; i++) {
         this.particles.push({
           x: pos.x + (Math.random() - 0.5) * 10,
           y: pos.y,
@@ -328,6 +437,7 @@ export class WorkshopCanvas {
           size: Math.random() * 4 + 2,
           life: 1.0,
           maxLife: 1.0,
+          floorLevel,
         });
       }
     }
@@ -335,12 +445,33 @@ export class WorkshopCanvas {
 
   private checkHover(): void {
     this.hoveredStation = null;
-    for (const [type, st] of this.workstations.entries()) {
-      const pos = this.isoToScreen(st.gridX, st.gridY, 10);
-      const dist = Math.hypot(this.mouseX - pos.x, this.mouseY - pos.y);
-      if (dist < 32 * this.zoom) {
-        this.hoveredStation = type;
-        break;
+    this.hoveredFloorLevel = null;
+
+    const visibleFloors = this.activeFloorIndex === 'all'
+      ? this.floors
+      : [this.floors[this.activeFloorIndex]].filter(Boolean);
+
+    for (const fl of visibleFloors) {
+      for (const [type, st] of fl.workstations.entries()) {
+        const pos = this.isoToScreen(st.gridX, st.gridY, fl.level, 10);
+        const dist = Math.hypot(this.mouseX - pos.x, this.mouseY - pos.y);
+        if (dist < 28 * this.zoom) {
+          this.hoveredStation = { station: type, floor: fl.level };
+          this.hoveredFloorLevel = fl.level;
+          return;
+        }
+      }
+    }
+
+    // Check floor plane hover in tower mode
+    if (this.activeFloorIndex === 'all') {
+      for (const fl of this.floors) {
+        const center = this.isoToScreen(5, 5, fl.level);
+        const dist = Math.hypot(this.mouseX - center.x, this.mouseY - center.y);
+        if (dist < 120 * this.zoom) {
+          this.hoveredFloorLevel = fl.level;
+          return;
+        }
       }
     }
   }
@@ -363,31 +494,37 @@ export class WorkshopCanvas {
   }
 
   private update(): void {
-    // 1. Move workers towards target
-    for (const worker of this.workers.values()) {
-      const dx = worker.targetX - worker.x;
-      const dy = worker.targetY - worker.y;
-      const dist = Math.hypot(dx, dy);
+    // 1. Move workers towards target across all floors
+    for (const fl of this.floors) {
+      for (const worker of fl.workers.values()) {
+        const dx = worker.targetX - worker.x;
+        const dy = worker.targetY - worker.y;
+        const dist = Math.hypot(dx, dy);
 
-      if (dist > 0.05) {
-        worker.x += (dx / dist) * 0.06;
-        worker.y += (dy / dist) * 0.06;
-        worker.state = 'walking';
-      } else {
-        worker.x = worker.targetX;
-        worker.y = worker.targetY;
-        if (worker.state === 'walking') {
-          worker.state = 'working';
+        if (dist > 0.05) {
+          worker.x += (dx / dist) * 0.06;
+          worker.y += (dy / dist) * 0.06;
+          worker.state = 'walking';
+        } else {
+          worker.x = worker.targetX;
+          worker.y = worker.targetY;
+          if (worker.state === 'walking') {
+            worker.state = 'working';
+          }
+        }
+      }
+
+      // Decay station pulse
+      for (const st of fl.workstations.values()) {
+        if (st.pulseTime > 0) {
+          st.pulseTime = Math.max(0, st.pulseTime - 0.015);
         }
       }
     }
 
-    // 2. Decay station pulse
-    for (const st of this.workstations.values()) {
-      if (st.pulseTime > 0) {
-        st.pulseTime = Math.max(0, st.pulseTime - 0.015);
-      }
-    }
+    // 2. Elevator cab smooth interpolation
+    const elevDelta = this.elevatorTargetLevel - this.elevatorCabLevel;
+    this.elevatorCabLevel += elevDelta * 0.08;
 
     // 3. Update particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
@@ -411,24 +548,23 @@ export class WorkshopCanvas {
 
     this.ctx.clearRect(0, 0, width, height);
 
-    // 1. Floor grid & floor boundary
-    this.renderFloorGrid();
+    const floorsToRender = this.activeFloorIndex === 'all'
+      ? this.floors
+      : [this.floors[this.activeFloorIndex]].filter(Boolean);
 
-    // 2. Factory floor paths & conveyor lines
-    this.renderFloorMarkings();
-
-    // 3. Render Workstations
-    for (const st of this.workstations.values()) {
-      this.renderWorkstation(st);
+    // 1. Draw Vertical Glass Tower Elevator Columns in overview mode
+    if (this.activeFloorIndex === 'all' && this.floors.length > 1) {
+      this.renderTowerElevatorShaft();
     }
 
-    // 4. Render Workers
-    for (const worker of this.workers.values()) {
-      this.renderWorker(worker);
+    // 2. Render Each Floor Plane (bottom to top)
+    for (const fl of floorsToRender) {
+      this.renderSingleFloor(fl);
     }
 
-    // 5. Render Particles
+    // 3. Render Particles
     for (const p of this.particles) {
+      if (this.activeFloorIndex !== 'all' && p.floorLevel !== this.activeFloorIndex) continue;
       this.ctx.save();
       this.ctx.globalAlpha = p.life;
       this.ctx.fillStyle = p.color;
@@ -438,7 +574,7 @@ export class WorkshopCanvas {
       this.ctx.restore();
     }
 
-    // 6. Emergency Stop Red Alert Tint
+    // 4. Emergency Stop Red Alert Tint
     if (this.emergencyStopActive) {
       const flash = (Math.sin(Date.now() / 200) + 1) / 2;
       this.ctx.save();
@@ -462,13 +598,60 @@ export class WorkshopCanvas {
     }
   }
 
-  private renderFloorGrid(): void {
+  private renderTowerElevatorShaft(): void {
+    const bottomLevel = 0;
+    const topLevel = this.floors.length - 1;
+
+    // Corner pillar coordinates
+    const pTopLeft = this.isoToScreen(0, 0, topLevel);
+    const pBottomLeft = this.isoToScreen(0, 0, bottomLevel);
+    const pTopRight = this.isoToScreen(10, 0, topLevel);
+    const pBottomRight = this.isoToScreen(10, 0, bottomLevel);
+
+    this.ctx.save();
+    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)';
+    this.ctx.lineWidth = 1.5 * this.zoom;
+    this.ctx.setLineDash([6, 6]);
+
+    // Glass corner supports
+    this.ctx.beginPath();
+    this.ctx.moveTo(pBottomLeft.x, pBottomLeft.y);
+    this.ctx.lineTo(pTopLeft.x, pTopLeft.y);
+    this.ctx.moveTo(pBottomRight.x, pBottomRight.y);
+    this.ctx.lineTo(pTopRight.x, pTopRight.y);
+    this.ctx.stroke();
+
+    // Elevator Cab on right flank
+    const elevPos = this.isoToScreen(10, 5, this.elevatorCabLevel, 0);
+    this.ctx.fillStyle = '#0284c7';
+    this.ctx.strokeStyle = '#38bdf8';
+    this.ctx.setLineDash([]);
+    this.ctx.lineWidth = 2 * this.zoom;
+
+    this.ctx.beginPath();
+    this.ctx.roundRect(elevPos.x - 12 * this.zoom, elevPos.y - 18 * this.zoom, 24 * this.zoom, 24 * this.zoom, 4 * this.zoom);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    // Elevator light
+    this.ctx.fillStyle = '#f8fafc';
+    this.ctx.font = `bold ${Math.max(7, 8 * this.zoom)}px monospace`;
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText(`▲`, elevPos.x, elevPos.y - 4 * this.zoom);
+
+    this.ctx.restore();
+  }
+
+  private renderSingleFloor(fl: FactoryFloor): void {
+    const isHoveredFloor = this.activeFloorIndex === 'all' && this.hoveredFloorLevel === fl.level;
+
+    // Floor Base Tile Grid
     for (let x = 0; x < this.gridWidth; x++) {
       for (let y = 0; y < this.gridHeight; y++) {
-        const top = this.isoToScreen(x, y);
-        const right = this.isoToScreen(x + 1, y);
-        const bottom = this.isoToScreen(x + 1, y + 1);
-        const left = this.isoToScreen(x, y + 1);
+        const top = this.isoToScreen(x, y, fl.level);
+        const right = this.isoToScreen(x + 1, y, fl.level);
+        const bottom = this.isoToScreen(x + 1, y + 1, fl.level);
+        const left = this.isoToScreen(x, y + 1, fl.level);
 
         this.ctx.beginPath();
         this.ctx.moveTo(top.x, top.y);
@@ -478,48 +661,56 @@ export class WorkshopCanvas {
         this.ctx.closePath();
 
         const isEven = (x + y) % 2 === 0;
-        this.ctx.fillStyle = isEven ? '#121720' : '#0f131a';
+        this.ctx.fillStyle = isHoveredFloor
+          ? (isEven ? '#182436' : '#141d2c')
+          : (isEven ? '#121720' : '#0f131a');
         this.ctx.fill();
 
-        this.ctx.strokeStyle = '#1e293b';
-        this.ctx.lineWidth = 0.5;
+        this.ctx.strokeStyle = isHoveredFloor ? fl.color : '#1e293b';
+        this.ctx.lineWidth = isHoveredFloor ? 0.8 : 0.4;
         this.ctx.stroke();
       }
     }
-  }
 
-  private renderFloorMarkings(): void {
-    // Safety hazard walkways across main intersections
-    const p1 = this.isoToScreen(6, 0);
-    const p2 = this.isoToScreen(6, 12);
+    // Floor Title Plaque in Tower Mode
+    const plaquePos = this.isoToScreen(0, 5, fl.level);
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    this.ctx.strokeStyle = fl.color;
+    this.ctx.lineWidth = 1 * this.zoom;
     this.ctx.beginPath();
-    this.ctx.moveTo(p1.x, p1.y);
-    this.ctx.lineTo(p2.x, p2.y);
-    this.ctx.strokeStyle = 'rgba(245, 158, 11, 0.15)';
-    this.ctx.setLineDash([4, 4]);
-    this.ctx.lineWidth = 2 * this.zoom;
+    this.ctx.roundRect(plaquePos.x - 70 * this.zoom, plaquePos.y - 12 * this.zoom, 140 * this.zoom, 22 * this.zoom, 4 * this.zoom);
+    this.ctx.fill();
     this.ctx.stroke();
 
-    const h1 = this.isoToScreen(0, 6);
-    const h2 = this.isoToScreen(12, 6);
-    this.ctx.beginPath();
-    this.ctx.moveTo(h1.x, h1.y);
-    this.ctx.lineTo(h2.x, h2.y);
-    this.ctx.stroke();
-    this.ctx.setLineDash([]);
+    this.ctx.font = `bold ${Math.max(8, 10 * this.zoom)}px Inter, sans-serif`;
+    this.ctx.fillStyle = fl.color;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(fl.name, plaquePos.x, plaquePos.y);
+    this.ctx.restore();
+
+    // Render Workstations on this floor
+    for (const st of fl.workstations.values()) {
+      this.renderWorkstation(st, fl.level);
+    }
+
+    // Render Workers on this floor
+    for (const worker of fl.workers.values()) {
+      this.renderWorker(worker, fl.level);
+    }
   }
 
-  private renderWorkstation(st: Workstation): void {
-    const pos = this.isoToScreen(st.gridX, st.gridY);
-    const isHovered = this.hoveredStation === st.type;
+  private renderWorkstation(st: Workstation, floorLevel: number): void {
+    const pos = this.isoToScreen(st.gridX, st.gridY, floorLevel);
+    const isHovered = this.hoveredStation?.station === st.type && this.hoveredStation.floor === floorLevel;
     const isSelected = this.selectedStation === st.type;
 
     this.ctx.save();
 
-    // Base glow if active
     if (st.pulseTime > 0 || isHovered || isSelected) {
       this.ctx.beginPath();
-      this.ctx.ellipse(pos.x, pos.y, 28 * this.zoom, 16 * this.zoom, 0, 0, Math.PI * 2);
+      this.ctx.ellipse(pos.x, pos.y, 24 * this.zoom, 14 * this.zoom, 0, 0, Math.PI * 2);
       this.ctx.fillStyle = isSelected
         ? 'rgba(245, 158, 11, 0.35)'
         : isHovered
@@ -528,19 +719,17 @@ export class WorkshopCanvas {
       this.ctx.fill();
     }
 
-    // Workstation isometric structure
     this.drawStationStructure(st, pos.x, pos.y);
 
-    // Label and status pill
-    this.ctx.font = `${Math.max(8, 10 * this.zoom)}px Inter, monospace`;
+    this.ctx.font = `${Math.max(7, 9 * this.zoom)}px Inter, monospace`;
     this.ctx.fillStyle = '#94a3b8';
     this.ctx.textAlign = 'center';
-    this.ctx.fillText(st.name, pos.x, pos.y + 24 * this.zoom);
+    this.ctx.fillText(st.name, pos.x, pos.y + 20 * this.zoom);
 
     if (st.itemsCount > 0) {
-      this.ctx.font = `bold ${Math.max(7, 9 * this.zoom)}px monospace`;
+      this.ctx.font = `bold ${Math.max(6, 8 * this.zoom)}px monospace`;
       this.ctx.fillStyle = st.color;
-      this.ctx.fillText(`⚡ ${st.itemsCount}`, pos.x, pos.y + 35 * this.zoom);
+      this.ctx.fillText(`⚡ ${st.itemsCount}`, pos.x, pos.y + 30 * this.zoom);
     }
 
     this.ctx.restore();
@@ -553,49 +742,48 @@ export class WorkshopCanvas {
     switch (st.type) {
       case 'foreman_desk': {
         ctx.fillStyle = '#334155';
-        ctx.fillRect(x - 14 * z, y - 18 * z, 28 * z, 14 * z);
+        ctx.fillRect(x - 12 * z, y - 16 * z, 24 * z, 12 * z);
         ctx.fillStyle = '#0284c7';
-        ctx.fillRect(x - 10 * z, y - 16 * z, 20 * z, 10 * z);
+        ctx.fillRect(x - 8 * z, y - 14 * z, 16 * z, 8 * z);
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 1 * z;
-        ctx.strokeRect(x - 8 * z, y - 14 * z, 16 * z, 6 * z);
+        ctx.strokeRect(x - 6 * z, y - 12 * z, 12 * z, 5 * z);
         break;
       }
 
       case 'filing_vault': {
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(x - 12 * z, y - 26 * z, 24 * z, 24 * z);
+        ctx.fillRect(x - 10 * z, y - 22 * z, 20 * z, 20 * z);
         ctx.fillStyle = '#3b82f6';
-        ctx.fillRect(x - 8 * z, y - 22 * z, 16 * z, 4 * z);
-        ctx.fillRect(x - 8 * z, y - 14 * z, 16 * z, 4 * z);
-        ctx.fillRect(x - 8 * z, y - 6 * z, 16 * z, 4 * z);
+        ctx.fillRect(x - 7 * z, y - 18 * z, 14 * z, 3 * z);
+        ctx.fillRect(x - 7 * z, y - 12 * z, 14 * z, 3 * z);
         break;
       }
 
       case 'search_radar': {
         ctx.fillStyle = '#1e293b';
         ctx.beginPath();
-        ctx.arc(x, y - 10 * z, 12 * z, 0, Math.PI * 2);
+        ctx.arc(x, y - 8 * z, 10 * z, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#06b6d4';
         ctx.lineWidth = 2 * z;
         ctx.beginPath();
-        ctx.moveTo(x, y - 10 * z);
-        ctx.lineTo(x + Math.cos(this.radarAngle) * 12 * z, y - 10 * z + Math.sin(this.radarAngle) * 12 * z);
+        ctx.moveTo(x, y - 8 * z);
+        ctx.lineTo(x + Math.cos(this.radarAngle) * 10 * z, y - 8 * z + Math.sin(this.radarAngle) * 10 * z);
         ctx.stroke();
         break;
       }
 
       case 'cnc_lathe': {
         ctx.fillStyle = '#475569';
-        ctx.fillRect(x - 16 * z, y - 14 * z, 32 * z, 12 * z);
+        ctx.fillRect(x - 14 * z, y - 12 * z, 28 * z, 10 * z);
         ctx.fillStyle = '#ec4899';
-        ctx.fillRect(x - 4 * z, y - 24 * z, 8 * z, 12 * z);
+        ctx.fillRect(x - 3 * z, y - 20 * z, 6 * z, 10 * z);
         if (st.pulseTime > 0.2) {
           ctx.strokeStyle = '#f43f5e';
           ctx.lineWidth = 1.5 * z;
           ctx.beginPath();
-          ctx.moveTo(x, y - 12 * z);
+          ctx.moveTo(x, y - 10 * z);
           ctx.lineTo(x, y - 2 * z);
           ctx.stroke();
         }
@@ -605,84 +793,75 @@ export class WorkshopCanvas {
       case 'test_furnace': {
         ctx.fillStyle = '#1e293b';
         ctx.beginPath();
-        ctx.arc(x, y - 12 * z, 14 * z, 0, Math.PI * 2);
+        ctx.arc(x, y - 10 * z, 12 * z, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = st.pulseTime > 0.1 ? '#10b981' : '#047857';
         ctx.beginPath();
-        ctx.arc(x, y - 12 * z, 7 * z, 0, Math.PI * 2);
+        ctx.arc(x, y - 10 * z, 6 * z, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
 
       case 'phone_booth': {
         ctx.fillStyle = '#581c87';
-        ctx.fillRect(x - 10 * z, y - 28 * z, 20 * z, 26 * z);
+        ctx.fillRect(x - 8 * z, y - 24 * z, 16 * z, 22 * z);
         ctx.fillStyle = '#c084fc';
-        ctx.fillRect(x - 6 * z, y - 24 * z, 12 * z, 10 * z);
-        ctx.fillStyle = '#f3e8ff';
-        ctx.fillRect(x + 2 * z, y - 18 * z, 3 * z, 6 * z);
+        ctx.fillRect(x - 5 * z, y - 20 * z, 10 * z, 8 * z);
         break;
       }
 
       case 'conveyor': {
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(x - 18 * z, y - 8 * z, 36 * z, 8 * z);
+        ctx.fillRect(x - 14 * z, y - 7 * z, 28 * z, 7 * z);
         ctx.fillStyle = '#14b8a6';
-        const crateX = x - 14 * z + this.conveyorOffset * 24 * z;
-        ctx.fillRect(crateX, y - 14 * z, 8 * z, 7 * z);
+        const crateX = x - 12 * z + this.conveyorOffset * 20 * z;
+        ctx.fillRect(crateX, y - 12 * z, 6 * z, 6 * z);
         break;
       }
 
       case 'security_gate': {
         ctx.fillStyle = '#475569';
-        ctx.fillRect(x - 16 * z, y - 22 * z, 6 * z, 22 * z);
-        ctx.fillRect(x + 10 * z, y - 22 * z, 6 * z, 22 * z);
+        ctx.fillRect(x - 14 * z, y - 18 * z, 5 * z, 18 * z);
+        ctx.fillRect(x + 9 * z, y - 18 * z, 5 * z, 18 * z);
         ctx.fillStyle = '#ef4444';
-        ctx.fillRect(x - 16 * z, y - 14 * z, 32 * z, 5 * z);
-        ctx.fillStyle = '#fbbf24';
-        ctx.fillRect(x - 10 * z, y - 14 * z, 6 * z, 5 * z);
-        ctx.fillRect(x + 2 * z, y - 14 * z, 6 * z, 5 * z);
-        ctx.fillStyle = st.pulseTime > 0.1 || this.emergencyStopActive ? '#ef4444' : '#64748b';
-        ctx.beginPath();
-        ctx.arc(x - 13 * z, y - 24 * z, 3.5 * z, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillRect(x - 14 * z, y - 12 * z, 28 * z, 4 * z);
         break;
       }
     }
   }
 
-  private renderWorker(worker: WorkerAgent): void {
-    const pos = this.isoToScreen(worker.x, worker.y);
+  private renderWorker(worker: WorkerAgent, floorLevel: number): void {
+    const pos = this.isoToScreen(worker.x, worker.y, floorLevel);
     const ctx = this.ctx;
     const z = this.zoom;
 
     ctx.save();
 
     ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y, 8 * z, 4 * z, 0, 0, Math.PI * 2);
+    ctx.ellipse(pos.x, pos.y, 7 * z, 3.5 * z, 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.fill();
 
     const bounce = worker.state === 'walking' ? Math.sin(Date.now() / 120) * 2 * z : 0;
-    const bodyY = pos.y - 12 * z + bounce;
+    const bodyY = pos.y - 10 * z + bounce;
 
     ctx.fillStyle = worker.color;
     ctx.beginPath();
-    ctx.arc(pos.x, bodyY, 6 * z, 0, Math.PI * 2);
+    ctx.arc(pos.x, bodyY, 5 * z, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.fillStyle = '#fbbf24';
     ctx.beginPath();
-    ctx.arc(pos.x, bodyY - 5 * z, 4 * z, Math.PI, 0);
+    ctx.arc(pos.x, bodyY - 4 * z, 3.5 * z, Math.PI, 0);
     ctx.fill();
 
-    ctx.font = `bold ${Math.max(8, 9 * z)}px Inter, sans-serif`;
+    ctx.font = `bold ${Math.max(7, 8 * z)}px Inter, sans-serif`;
     ctx.fillStyle = '#e2e8f0';
     ctx.textAlign = 'center';
-    ctx.fillText(worker.name, pos.x, bodyY - 12 * z);
+    ctx.fillText(worker.name, pos.x, bodyY - 10 * z);
 
     if (worker.speechBubble && worker.speechBubble.expiresAt > Date.now()) {
-      this.drawSpeechBubble(pos.x, bodyY - 24 * z, worker.speechBubble.text);
+      this.drawSpeechBubble(pos.x, bodyY - 20 * z, worker.speechBubble.text);
     }
 
     ctx.restore();
@@ -690,11 +869,11 @@ export class WorkshopCanvas {
 
   private drawSpeechBubble(x: number, y: number, text: string): void {
     const ctx = this.ctx;
-    ctx.font = `${Math.max(8, 10 * this.zoom)}px Inter, monospace`;
+    ctx.font = `${Math.max(7, 9 * this.zoom)}px Inter, monospace`;
     const textMetrics = ctx.measureText(text);
-    const padding = 6 * this.zoom;
-    const width = Math.min(240 * this.zoom, textMetrics.width + padding * 2);
-    const height = 18 * this.zoom;
+    const padding = 5 * this.zoom;
+    const width = Math.min(220 * this.zoom, textMetrics.width + padding * 2);
+    const height = 16 * this.zoom;
 
     ctx.save();
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
@@ -702,7 +881,7 @@ export class WorkshopCanvas {
     ctx.lineWidth = 1 * this.zoom;
 
     ctx.beginPath();
-    ctx.roundRect(x - width / 2, y - height, width, height, 4 * this.zoom);
+    ctx.roundRect(x - width / 2, y - height, width, height, 3 * this.zoom);
     ctx.fill();
     ctx.stroke();
 
@@ -710,7 +889,7 @@ export class WorkshopCanvas {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(
-      text.length > 28 ? text.slice(0, 26) + '…' : text,
+      text.length > 24 ? text.slice(0, 22) + '…' : text,
       x,
       y - height / 2
     );
