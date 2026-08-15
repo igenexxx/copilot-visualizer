@@ -1,5 +1,7 @@
 # 🏭 Copilot Visualizer // Industrial Workshop & Flow Graph
 
+![Copilot Visualizer Screenshot](docs/assets/screenshot.png)
+
 **Copilot Visualizer** is a real-time event visualization and telemetry system for AI coding sessions (GitHub Copilot CLI, MCP servers, and Agent frameworks).
 
 It translates coding agent workflows into an interactive **Factory Workshop Game Floor** (isometric 2D canvas) and a **Causal Flow Graph**, featuring live worker sprites, workstations, conveyor belts, spark particle systems, and live inspection drawers.

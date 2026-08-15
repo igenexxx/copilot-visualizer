@@ -1,0 +1,28 @@
+# Binaries and build outputs
+/copilot-visualizer
+/bin/
+web/dist/
+
+# Test coverage
+coverage.out
+coverage.html
+*.coverprofile
+
+# Dependencies
+node_modules/
+web/node_modules/
+
+# Runtime session logs and recorded tapes
+.tapes/
+.session_store/
+*.log
+
+# Taskfile build cache
+.task/
+
+# OS and Editor artifacts
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
