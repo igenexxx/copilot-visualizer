@@ -39,6 +39,12 @@ jobs:
       - name: Install frontend deps
         run: npm ci --prefix web
 
+      - name: Frontend tests (Vitest)
+        run: npm --prefix web test
+
+      - name: Frontend build (required for Go embed)
+        run: npm --prefix web run build
+
       - name: Go vet
         run: go vet ./...
 
@@ -52,12 +58,6 @@ jobs:
 
       - name: Go tests (race + cover)
         run: go test -v -race -coverprofile=coverage.out ./...
-
-      - name: Frontend tests (Vitest)
-        run: npm --prefix web test
-
-      - name: Frontend type-check
-        run: npm --prefix web run build
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
