@@ -46,8 +46,8 @@ export interface VisualizerEvent {
   id: string;
   sessionId: string;
   timestamp: number;
-  type: EventType;
-  agentId: string;
+  type: EventType | (string & {});
+  agentId?: string;
   agentRole?: AgentRole;
   station?: StationType;
   title: string;

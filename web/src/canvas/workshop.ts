@@ -325,7 +325,7 @@ export class WorkshopCanvas {
 
   public handleEvent(evt: VisualizerEvent, isHistory: boolean = false): void {
     // 1. Determine Floor for agent
-    const floor = this.getOrCreateFloorForAgent(evt.agentId, evt.agentRole || 'crafter');
+    const floor = this.getOrCreateFloorForAgent(evt.agentId || 'agent-foreman', evt.agentRole || 'crafter');
     if (!isHistory) {
       this.elevatorTargetLevel = floor.level;
     }

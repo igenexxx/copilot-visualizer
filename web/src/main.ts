@@ -7,6 +7,14 @@ import { FlowGraphCanvas } from './canvas/graph';
 import { RPGEngine } from './rpg/engine';
 import { TokenomicsTracker } from './tokenomics/tracker';
 import { SoundscapeEngine } from './audio/soundscape';
+import { LoopDetectorEngine } from './analytics/loop_detector';
+import { CognitiveClassifierEngine } from './analytics/cognitive_classifier';
+import { ContextSaturationEngine } from './analytics/context_saturation';
+import { GoalTrackerEngine } from './analytics/goal_tracker';
+import { BlastRadiusEngine } from './analytics/blast_radius';
+import { WaterfallTimelineEngine } from './analytics/waterfall_timeline';
+import { CognitiveHUD } from './ui/cognitive_hud';
+import { MissionControlPanel } from './ui/mission_control';
 
 class App {
   private client: VisualizerClient;
@@ -15,6 +23,16 @@ class App {
   private rpg: RPGEngine;
   private tokenomics: TokenomicsTracker;
   private soundscape: SoundscapeEngine;
+
+  // Intelligence & Mission Control Analytics
+  private loopDetector = new LoopDetectorEngine();
+  private cognitiveClassifier = new CognitiveClassifierEngine();
+  private contextSaturation = new ContextSaturationEngine();
+  private goalTracker = new GoalTrackerEngine();
+  private blastRadius = new BlastRadiusEngine();
+  private waterfallTimeline = new WaterfallTimelineEngine();
+  private cognitiveHud!: CognitiveHUD;
+  private missionControl!: MissionControlPanel;
 
   private allEvents: VisualizerEvent[] = [];
   private currentPlaybackIndex = -1;
@@ -45,6 +63,7 @@ class App {
     this.soundscape = new SoundscapeEngine();
     this.initDOM();
     this.initCanvases();
+    this.initAnalytics();
     this.setupSubscriptions();
     this.client.connect();
     this.loadInitialHistory();
@@ -502,6 +521,19 @@ class App {
       };
       bar.appendChild(flBtn);
     });
+  }
+
+  private initAnalytics(): void {
+    this.cognitiveHud = new CognitiveHUD();
+    this.cognitiveHud.setOnIntervene((suggestion) => {
+      const intercomInput = document.getElementById('intercom-input') as HTMLInputElement;
+      if (intercomInput) {
+        if (suggestion) intercomInput.value = suggestion;
+        intercomInput.focus();
+        intercomInput.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+    this.missionControl = new MissionControlPanel();
   }
 
   private bindControls(): void {
@@ -1002,6 +1034,18 @@ class App {
     this.rpg.handleEvent(event);
     this.tokenomics.handleEvent(event);
     this.updateHUD();
+
+    // Mission Control Analytics Dispatch
+    const loopStatus = this.loopDetector.processEvent(event);
+    const cogStatus = this.cognitiveClassifier.processEvent(event);
+    const contextStatus = this.contextSaturation.processEvent(event);
+    const goalStatus = this.goalTracker.processEvent(event);
+    const blastStatus = this.blastRadius.processEvent(event);
+    const waterfallStatus = this.waterfallTimeline.processEvent(event);
+
+    this.cognitiveHud.update(cogStatus, loopStatus);
+    this.missionControl.update(contextStatus, goalStatus, blastStatus, waterfallStatus);
+
     if (!isHistory) {
       this.scheduleAutoSaveState();
     }
