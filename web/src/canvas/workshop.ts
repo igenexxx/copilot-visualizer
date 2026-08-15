@@ -29,11 +29,11 @@ export class WorkshopCanvas {
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
 
-  private tileWidth = 52;
-  private tileHeight = 26;
-  private gridWidth = 11;
-  private gridHeight = 11;
-  private floorElevationStep = 170; // vertical separation between stacked floors in tower mode
+  private tileWidth = 60;
+  private tileHeight = 30;
+  private gridWidth = 16;
+  private gridHeight = 16;
+  private floorElevationStep = 220; // vertical separation between stacked floors in tower mode
 
   public floors: FactoryFloor[] = [];
   public activeFloorIndex: number | 'all' = 'all'; // 'all' for full tower overview, or floor index (0, 1, 2)
@@ -50,7 +50,7 @@ export class WorkshopCanvas {
   public onFloorChanged?: (floorIndex: number | 'all') => void;
 
   // Camera Pan & Zoom
-  public zoom = 0.9;
+  public zoom = 0.85;
   public panX = 0;
   public panY = 0;
   private isPanning = false;
@@ -98,16 +98,16 @@ export class WorkshopCanvas {
     });
 
     const list: Workstation[] = [
-      createStation('foreman_desk', level === 0 ? 'Master Command Desk' : `Subagent Desk ${level}F`, 5, 5, '#f59e0b', 'Orchestration, planning & blueprint architecture'),
-      createStation('server_rack', 'MCP Server Vault', 2, 2, '#38bdf8', '19" Enterprise server racks & MCP fiber bridges'),
-      createStation('subagent_office', 'Subagent Glass Suite', 2, 8, '#a855f7', 'Subagent isolation cubicles & blueprint drafting'),
-      createStation('repo_shelf', 'Repo Shelves (/pkg /cmd /web)', 8, 2, '#3b82f6', 'Project repository directory compartment shelves'),
-      createStation('cnc_lathe', 'CNC Machining Lathe', 8, 5, '#ec4899', 'Code forging, patch editing & file modification'),
-      createStation('test_furnace', 'Test Range & Furnace', 8, 8, '#10b981', 'Command execution, test suites & build verification'),
-      createStation('search_radar', 'Search Radar', 5, 2, '#06b6d4', 'Codebase symbol index & pattern scanning'),
-      createStation('phone_booth', 'MCP Dispatch', 1, 5, '#a855f7', 'External MCP Server bridges & remote RPC phone lines'),
-      createStation('conveyor', 'Conveyor & Elevator', 9, 5, '#14b8a6', 'Inter-floor transport & shipping dock'),
-      createStation('security_gate', 'Security Gate', 5, 9, '#ef4444', 'Human-in-the-Loop approval gate & checkpoint barrier'),
+      createStation('foreman_desk', level === 0 ? 'Master Command Desk' : `Subagent Desk ${level}F`, 8, 8, '#f59e0b', 'Orchestration, planning & blueprint architecture'),
+      createStation('server_rack', 'MCP Server Vault', 3, 3, '#38bdf8', '19" Enterprise server racks & MCP fiber bridges'),
+      createStation('phone_booth', 'MCP Dispatch', 2, 5, '#a855f7', 'External MCP Server bridges & remote RPC phone lines'),
+      createStation('subagent_office', 'Subagent Glass Suite', 3, 13, '#a855f7', 'Subagent isolation cubicles & blueprint drafting'),
+      createStation('repo_shelf', 'Repo Shelves (/pkg /cmd /web)', 13, 3, '#3b82f6', 'Project repository directory compartment shelves'),
+      createStation('search_radar', 'Search Radar', 8, 3, '#06b6d4', 'Codebase symbol index & pattern scanning'),
+      createStation('cnc_lathe', 'CNC Machining Lathe', 13, 8, '#ec4899', 'Code forging, patch editing & file modification'),
+      createStation('test_furnace', 'Test Range & Furnace', 13, 13, '#10b981', 'Command execution, test suites & build verification'),
+      createStation('conveyor', 'Conveyor & Elevator', 15, 8, '#14b8a6', 'Inter-floor transport & shipping dock'),
+      createStation('security_gate', 'Security Gate', 8, 15, '#ef4444', 'Human-in-the-Loop approval gate & checkpoint barrier'),
     ];
 
     list.forEach((st) => stations.set(st.type, st));
@@ -132,10 +132,10 @@ export class WorkshopCanvas {
       id: 'agent-foreman',
       name: 'Foreman Alex',
       role: 'foreman',
-      x: 5,
-      y: 5,
-      targetX: 5,
-      targetY: 5,
+      x: 8,
+      y: 8,
+      targetX: 8,
+      targetY: 8,
       state: 'idle',
       color: '#f59e0b',
     };
@@ -169,10 +169,10 @@ export class WorkshopCanvas {
       id: agentId,
       name: `${role.toUpperCase()} ${agentId.slice(-4)}`,
       role: role as any,
-      x: 5,
-      y: 5,
-      targetX: 5,
-      targetY: 5,
+      x: 15,
+      y: 8,
+      targetX: 8,
+      targetY: 8,
       state: 'working',
       color: floorColor,
     };
@@ -286,9 +286,10 @@ export class WorkshopCanvas {
     const originY = height / 2 + (this.activeFloorIndex === 'all' ? (this.floors.length - 1) * 60 : 0);
 
     const verticalFloorOffset = this.activeFloorIndex === 'all' ? floorLevel * this.floorElevationStep : 0;
+    const gridCenterOffsetY = (this.gridWidth + this.gridHeight) * (this.tileHeight / 4);
 
     const baseScreenX = originX + (gx - gy) * (this.tileWidth / 2);
-    const baseScreenY = originY + (gx + gy) * (this.tileHeight / 2) - verticalFloorOffset - gz;
+    const baseScreenY = originY + (gx + gy) * (this.tileHeight / 2) - gridCenterOffsetY - verticalFloorOffset - gz;
 
     return {
       x: baseScreenX * this.zoom + this.panX + (1 - this.zoom) * originX,
@@ -477,9 +478,9 @@ export class WorkshopCanvas {
     // Check floor plane hover in tower mode
     if (this.activeFloorIndex === 'all') {
       for (const fl of this.floors) {
-        const center = this.isoToScreen(5, 5, fl.level);
+        const center = this.isoToScreen(8, 8, fl.level);
         const dist = Math.hypot(this.mouseX - center.x, this.mouseY - center.y);
-        if (dist < 120 * this.zoom) {
+        if (dist < 180 * this.zoom) {
           this.hoveredFloorLevel = fl.level;
           return;
         }
@@ -664,8 +665,8 @@ export class WorkshopCanvas {
     // Corner pillar coordinates
     const pTopLeft = this.isoToScreen(0, 0, topLevel);
     const pBottomLeft = this.isoToScreen(0, 0, bottomLevel);
-    const pTopRight = this.isoToScreen(10, 0, topLevel);
-    const pBottomRight = this.isoToScreen(10, 0, bottomLevel);
+    const pTopRight = this.isoToScreen(this.gridWidth - 1, 0, topLevel);
+    const pBottomRight = this.isoToScreen(this.gridWidth - 1, 0, bottomLevel);
 
     this.ctx.save();
     this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)';
@@ -681,7 +682,7 @@ export class WorkshopCanvas {
     this.ctx.stroke();
 
     // Elevator Cab on right flank
-    const elevPos = this.isoToScreen(10, 5, this.elevatorCabLevel, 0);
+    const elevPos = this.isoToScreen(this.gridWidth - 1, 8, this.elevatorCabLevel, 0);
     this.ctx.fillStyle = '#0284c7';
     this.ctx.strokeStyle = '#38bdf8';
     this.ctx.setLineDash([]);
@@ -731,13 +732,13 @@ export class WorkshopCanvas {
       }
     }
 
-    // Multi-Room Architectural Glass Partitions & Zones
-    this.renderRoomZone(0, 0, 4, 4, fl.level, '⚡ MCP SERVER VAULT', '#38bdf8', 'rgba(56, 189, 248, 0.06)');
-    this.renderRoomZone(0, 6, 4, 10, fl.level, '👥 SUBAGENT GLASS OFFICE', '#a855f7', 'rgba(168, 85, 247, 0.06)');
-    this.renderRoomZone(6, 0, 10, 4, fl.level, '📁 REPO TREE MODULE SHELVES', '#3b82f6', 'rgba(59, 130, 246, 0.05)');
+    // Multi-Room Architectural Glass Partitions & Zones on spacious 16x16 layout
+    this.renderRoomZone(1, 1, 6, 6, fl.level, '⚡ MCP SERVER VAULT', '#38bdf8', 'rgba(56, 189, 248, 0.08)');
+    this.renderRoomZone(1, 10, 6, 15, fl.level, '👥 SUBAGENT GLASS OFFICE', '#a855f7', 'rgba(168, 85, 247, 0.08)');
+    this.renderRoomZone(10, 1, 15, 6, fl.level, '📁 REPO TREE MODULE SHELVES', '#3b82f6', 'rgba(59, 130, 246, 0.07)');
 
     // Floor Title Plaque in Tower Mode
-    const plaquePos = this.isoToScreen(0, 5, fl.level);
+    const plaquePos = this.isoToScreen(0, 8, fl.level);
     this.ctx.save();
     this.ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
     this.ctx.strokeStyle = fl.color;
