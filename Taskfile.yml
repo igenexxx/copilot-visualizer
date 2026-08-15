@@ -1,0 +1,79 @@
+version: '3'
+
+vars:
+  BINARY_NAME: copilot-visualizer
+  PORT: 9876
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list
+
+  install:
+    desc: Install Go and Web dependencies
+    cmds:
+      - go mod download
+      - npm --prefix web install
+
+  build:web:
+    desc: Build frontend assets with Vite
+    sources:
+      - web/src/**/*
+      - web/index.html
+      - web/package.json
+      - web/tsconfig.json
+    generates:
+      - web/dist/index.html
+    cmds:
+      - npm --prefix web run build
+
+  build:go:
+    desc: Compile single standalone Go binary with embedded UI
+    deps: [build:web]
+    sources:
+      - '**/*.go'
+      - web/dist/**/*
+    generates:
+      - '{{.BINARY_NAME}}'
+    cmds:
+      - go build -ldflags="-s -w" -o {{.BINARY_NAME}} ./cmd/server
+      - 'echo "✓ Built standalone binary: ./{{.BINARY_NAME}}"'
+
+  build:
+    desc: Build entire project (frontend + embedded Go binary)
+    deps: [build:go]
+
+  test:
+    desc: Run adversarial unit tests with race detector and coverage
+    cmds:
+      - go test ./... -v -race -cover
+
+  test:coverage:
+    desc: Generate HTML test coverage report
+    cmds:
+      - go test ./pkg/... -coverprofile=coverage.out
+      - go tool cover -html=coverage.out -o coverage.html
+      - 'echo "✓ Coverage report generated at coverage.html"'
+
+  dev:web:
+    desc: Start Vite frontend development server
+    cmds:
+      - npm --prefix web run dev
+
+  dev:server:
+    desc: Run backend server in dev mode with live simulation
+    cmds:
+      - go run ./cmd/server -port={{.PORT}} -demo=true
+
+  run:
+    desc: Run the built standalone visualizer binary
+    deps: [build]
+    cmds:
+      - ./{{.BINARY_NAME}} -port={{.PORT}}
+
+  clean:
+    desc: Remove build artifacts and temporary files
+    cmds:
+      - rm -rf {{.BINARY_NAME}} bin/ coverage.out coverage.html web/dist/
+      - 'echo "✓ Cleaned build artifacts"'
