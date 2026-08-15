@@ -16,10 +16,10 @@ export class WorkshopCanvas {
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
 
-  private tileWidth = 64;
-  private tileHeight = 32;
-  private gridWidth = 9;
-  private gridHeight = 9;
+  private tileWidth = 56;
+  private tileHeight = 28;
+  private gridWidth = 13;
+  private gridHeight = 13;
 
   public workstations: Map<StationType, Workstation> = new Map();
   public workers: Map<string, WorkerAgent> = new Map();
@@ -31,9 +31,18 @@ export class WorkshopCanvas {
   public selectedAgent: string | null = null;
   public onSelectElement?: (type: 'station' | 'agent', data: any) => void;
 
+  // Camera Pan & Zoom
+  public zoom = 1.0;
+  public panX = 0;
+  public panY = 0;
+  private isPanning = false;
+  private startMouseX = 0;
+  private startMouseY = 0;
+
   private mouseX = 0;
   private mouseY = 0;
   private hoveredStation: StationType | null = null;
+  public emergencyStopActive = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -49,8 +58,8 @@ export class WorkshopCanvas {
       {
         type: 'foreman_desk',
         name: 'Foreman Command Desk',
-        gridX: 4,
-        gridY: 4,
+        gridX: 6,
+        gridY: 6,
         color: '#f59e0b',
         description: 'Orchestration, planning & blueprint architecture',
         active: false,
@@ -60,8 +69,8 @@ export class WorkshopCanvas {
       {
         type: 'filing_vault',
         name: 'Codebase Filing Vault',
-        gridX: 1,
-        gridY: 2,
+        gridX: 2,
+        gridY: 3,
         color: '#3b82f6',
         description: 'File inspections, reading & document navigation',
         active: false,
@@ -71,8 +80,8 @@ export class WorkshopCanvas {
       {
         type: 'search_radar',
         name: 'Grep & Search Radar',
-        gridX: 2,
-        gridY: 6,
+        gridX: 3,
+        gridY: 10,
         color: '#06b6d4',
         description: 'Codebase symbol index & pattern scanning',
         active: false,
@@ -82,8 +91,8 @@ export class WorkshopCanvas {
       {
         type: 'cnc_lathe',
         name: 'CNC Machining Lathe',
-        gridX: 7,
-        gridY: 2,
+        gridX: 10,
+        gridY: 3,
         color: '#ec4899',
         description: 'Code forging, patch editing & file modification',
         active: false,
@@ -93,8 +102,8 @@ export class WorkshopCanvas {
       {
         type: 'test_furnace',
         name: 'Test Range & Furnace',
-        gridX: 6,
-        gridY: 6,
+        gridX: 10,
+        gridY: 10,
         color: '#10b981',
         description: 'Command execution, test suites & build verification',
         active: false,
@@ -104,7 +113,7 @@ export class WorkshopCanvas {
       {
         type: 'phone_booth',
         name: 'MCP Dispatch Booth',
-        gridX: 1,
+        gridX: 2,
         gridY: 7,
         color: '#a855f7',
         description: 'External MCP Server bridges & remote RPC phone lines',
@@ -115,7 +124,7 @@ export class WorkshopCanvas {
       {
         type: 'conveyor',
         name: 'Shipping Conveyor',
-        gridX: 7,
+        gridX: 11,
         gridY: 7,
         color: '#14b8a6',
         description: 'Output transit, PR commits & finished artifact dock',
@@ -126,8 +135,8 @@ export class WorkshopCanvas {
       {
         type: 'security_gate',
         name: 'Security Gate & Barrier',
-        gridX: 4,
-        gridY: 7,
+        gridX: 6,
+        gridY: 11,
         color: '#ef4444',
         description: 'Human-in-the-Loop approval gate & checkpoint barrier',
         active: false,
@@ -139,17 +148,15 @@ export class WorkshopCanvas {
     stations.forEach((st) => this.workstations.set(st.type, st));
   }
 
-  public emergencyStopActive = false;
-
   private initWorkers(): void {
     const foreman: WorkerAgent = {
       id: 'agent-foreman',
       name: 'Foreman Alex',
       role: 'foreman',
-      x: 4,
-      y: 4,
-      targetX: 4,
-      targetY: 4,
+      x: 6,
+      y: 6,
+      targetX: 6,
+      targetY: 6,
       state: 'idle',
       color: '#f59e0b',
     };
@@ -159,11 +166,50 @@ export class WorkshopCanvas {
   private setupEventListeners(): void {
     window.addEventListener('resize', () => this.resize());
 
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+      const newZoom = Math.max(0.4, Math.min(2.5, this.zoom * zoomFactor));
+
+      const rect = this.canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      this.panX = mouseX - (mouseX - this.panX) * (newZoom / this.zoom);
+      this.panY = mouseY - (mouseY - this.panY) * (newZoom / this.zoom);
+      this.zoom = newZoom;
+    }, { passive: false });
+
+    this.canvas.addEventListener('mousedown', (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const clientX = e.clientX - rect.left;
+      const clientY = e.clientY - rect.top;
+
+      if (!this.hoveredStation) {
+        this.isPanning = true;
+        this.startMouseX = clientX - this.panX;
+        this.startMouseY = clientY - this.panY;
+      }
+    });
+
     this.canvas.addEventListener('mousemove', (e) => {
       const rect = this.canvas.getBoundingClientRect();
-      this.mouseX = e.clientX - rect.left;
-      this.mouseY = e.clientY - rect.top;
-      this.checkHover();
+      const clientX = e.clientX - rect.left;
+      const clientY = e.clientY - rect.top;
+
+      this.mouseX = clientX;
+      this.mouseY = clientY;
+
+      if (this.isPanning) {
+        this.panX = clientX - this.startMouseX;
+        this.panY = clientY - this.startMouseY;
+      } else {
+        this.checkHover();
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      this.isPanning = false;
     });
 
     this.canvas.addEventListener('click', () => {
@@ -192,9 +238,13 @@ export class WorkshopCanvas {
     const originX = width / 2;
     const originY = height / 2 - 30;
 
-    const screenX = originX + (gx - gy) * (this.tileWidth / 2);
-    const screenY = originY + (gx + gy) * (this.tileHeight / 2) - gz;
-    return { x: screenX, y: screenY };
+    const baseScreenX = originX + (gx - gy) * (this.tileWidth / 2);
+    const baseScreenY = originY + (gx + gy) * (this.tileHeight / 2) - gz;
+
+    return {
+      x: baseScreenX * this.zoom + this.panX + (1 - this.zoom) * originX,
+      y: baseScreenY * this.zoom + this.panY + (1 - this.zoom) * originY,
+    };
   }
 
   public handleEvent(evt: VisualizerEvent): void {
@@ -206,10 +256,10 @@ export class WorkshopCanvas {
         id: evt.agentId,
         name: evt.agentRole ? `${evt.agentRole.toUpperCase()} ${evt.agentId.slice(-4)}` : 'Specialist Agent',
         role: evt.agentRole || 'crafter',
-        x: 8,
-        y: 4, // walk in from workshop entrance
-        targetX: 4,
-        targetY: 4,
+        x: 12,
+        y: 6, // walk in from workshop entrance
+        targetX: 6,
+        targetY: 6,
         state: 'walking',
         color: colors[this.workers.size % colors.length],
       };
@@ -229,7 +279,6 @@ export class WorkshopCanvas {
       targetStation.lastEvent = evt;
       targetStation.itemsCount++;
 
-      // Trigger station-specific visual effects
       this.spawnStationEffects(evt.station, targetStation.gridX, targetStation.gridY);
     }
 
@@ -256,7 +305,6 @@ export class WorkshopCanvas {
   private spawnStationEffects(station: StationType, gx: number, gy: number): void {
     const pos = this.isoToScreen(gx, gy, 15);
     if (station === 'cnc_lathe') {
-      // Sparks
       for (let i = 0; i < 18; i++) {
         this.particles.push({
           x: pos.x,
@@ -270,7 +318,6 @@ export class WorkshopCanvas {
         });
       }
     } else if (station === 'test_furnace') {
-      // Steam & fire
       for (let i = 0; i < 14; i++) {
         this.particles.push({
           x: pos.x + (Math.random() - 0.5) * 10,
@@ -291,7 +338,7 @@ export class WorkshopCanvas {
     for (const [type, st] of this.workstations.entries()) {
       const pos = this.isoToScreen(st.gridX, st.gridY, 10);
       const dist = Math.hypot(this.mouseX - pos.x, this.mouseY - pos.y);
-      if (dist < 32) {
+      if (dist < 32 * this.zoom) {
         this.hoveredStation = type;
         break;
       }
@@ -347,7 +394,7 @@ export class WorkshopCanvas {
       const p = this.particles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.1; // gravity
+      p.vy += 0.1;
       p.life -= 0.03;
       if (p.life <= 0) {
         this.particles.splice(i, 1);
@@ -386,19 +433,18 @@ export class WorkshopCanvas {
       this.ctx.globalAlpha = p.life;
       this.ctx.fillStyle = p.color;
       this.ctx.beginPath();
-      this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      this.ctx.arc(p.x, p.y, p.size * this.zoom, 0, Math.PI * 2);
       this.ctx.fill();
       this.ctx.restore();
     }
 
     // 6. Emergency Stop Red Alert Tint
     if (this.emergencyStopActive) {
-      const flash = (Math.sin(Date.now() / 200) + 1) / 2; // 0..1 pulse
+      const flash = (Math.sin(Date.now() / 200) + 1) / 2;
       this.ctx.save();
       this.ctx.fillStyle = `rgba(239, 68, 68, ${0.12 + flash * 0.15})`;
       this.ctx.fillRect(0, 0, width, height);
 
-      // Warning Banner across top of canvas
       this.ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
       this.ctx.strokeStyle = '#ef4444';
       this.ctx.lineWidth = 2;
@@ -443,15 +489,22 @@ export class WorkshopCanvas {
   }
 
   private renderFloorMarkings(): void {
-    // Safety hazard borders & walkways
-    const p1 = this.isoToScreen(4, 0);
-    const p2 = this.isoToScreen(4, 8);
+    // Safety hazard walkways across main intersections
+    const p1 = this.isoToScreen(6, 0);
+    const p2 = this.isoToScreen(6, 12);
     this.ctx.beginPath();
     this.ctx.moveTo(p1.x, p1.y);
     this.ctx.lineTo(p2.x, p2.y);
     this.ctx.strokeStyle = 'rgba(245, 158, 11, 0.15)';
     this.ctx.setLineDash([4, 4]);
-    this.ctx.lineWidth = 2;
+    this.ctx.lineWidth = 2 * this.zoom;
+    this.ctx.stroke();
+
+    const h1 = this.isoToScreen(0, 6);
+    const h2 = this.isoToScreen(12, 6);
+    this.ctx.beginPath();
+    this.ctx.moveTo(h1.x, h1.y);
+    this.ctx.lineTo(h2.x, h2.y);
     this.ctx.stroke();
     this.ctx.setLineDash([]);
   }
@@ -466,7 +519,7 @@ export class WorkshopCanvas {
     // Base glow if active
     if (st.pulseTime > 0 || isHovered || isSelected) {
       this.ctx.beginPath();
-      this.ctx.ellipse(pos.x, pos.y, 28, 16, 0, 0, Math.PI * 2);
+      this.ctx.ellipse(pos.x, pos.y, 28 * this.zoom, 16 * this.zoom, 0, 0, Math.PI * 2);
       this.ctx.fillStyle = isSelected
         ? 'rgba(245, 158, 11, 0.35)'
         : isHovered
@@ -479,15 +532,15 @@ export class WorkshopCanvas {
     this.drawStationStructure(st, pos.x, pos.y);
 
     // Label and status pill
-    this.ctx.font = '10px Inter, monospace';
+    this.ctx.font = `${Math.max(8, 10 * this.zoom)}px Inter, monospace`;
     this.ctx.fillStyle = '#94a3b8';
     this.ctx.textAlign = 'center';
-    this.ctx.fillText(st.name, pos.x, pos.y + 24);
+    this.ctx.fillText(st.name, pos.x, pos.y + 24 * this.zoom);
 
     if (st.itemsCount > 0) {
-      this.ctx.font = 'bold 9px monospace';
+      this.ctx.font = `bold ${Math.max(7, 9 * this.zoom)}px monospace`;
       this.ctx.fillStyle = st.color;
-      this.ctx.fillText(`⚡ ${st.itemsCount}`, pos.x, pos.y + 35);
+      this.ctx.fillText(`⚡ ${st.itemsCount}`, pos.x, pos.y + 35 * this.zoom);
     }
 
     this.ctx.restore();
@@ -495,121 +548,103 @@ export class WorkshopCanvas {
 
   private drawStationStructure(st: Workstation, x: number, y: number): void {
     const ctx = this.ctx;
+    const z = this.zoom;
 
     switch (st.type) {
       case 'foreman_desk': {
-        // Drafting desk
         ctx.fillStyle = '#334155';
-        ctx.fillRect(x - 14, y - 18, 28, 14);
-        // Glowing blueprint sheet
+        ctx.fillRect(x - 14 * z, y - 18 * z, 28 * z, 14 * z);
         ctx.fillStyle = '#0284c7';
-        ctx.fillRect(x - 10, y - 16, 20, 10);
-        // Hologram projector beam
+        ctx.fillRect(x - 10 * z, y - 16 * z, 20 * z, 10 * z);
         ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x - 8, y - 14, 16, 6);
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 8 * z, y - 14 * z, 16 * z, 6 * z);
         break;
       }
 
       case 'filing_vault': {
-        // Tall steel cabinet
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(x - 12, y - 26, 24, 24);
+        ctx.fillRect(x - 12 * z, y - 26 * z, 24 * z, 24 * z);
         ctx.fillStyle = '#3b82f6';
-        ctx.fillRect(x - 8, y - 22, 16, 4);
-        ctx.fillRect(x - 8, y - 14, 16, 4);
-        ctx.fillRect(x - 8, y - 6, 16, 4);
+        ctx.fillRect(x - 8 * z, y - 22 * z, 16 * z, 4 * z);
+        ctx.fillRect(x - 8 * z, y - 14 * z, 16 * z, 4 * z);
+        ctx.fillRect(x - 8 * z, y - 6 * z, 16 * z, 4 * z);
         break;
       }
 
       case 'search_radar': {
-        // Radar dish base
         ctx.fillStyle = '#1e293b';
         ctx.beginPath();
-        ctx.arc(x, y - 10, 12, 0, Math.PI * 2);
+        ctx.arc(x, y - 10 * z, 12 * z, 0, Math.PI * 2);
         ctx.fill();
-        // Oscillating sweep line
         ctx.strokeStyle = '#06b6d4';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2 * z;
         ctx.beginPath();
-        ctx.moveTo(x, y - 10);
-        ctx.lineTo(x + Math.cos(this.radarAngle) * 12, y - 10 + Math.sin(this.radarAngle) * 12);
+        ctx.moveTo(x, y - 10 * z);
+        ctx.lineTo(x + Math.cos(this.radarAngle) * 12 * z, y - 10 * z + Math.sin(this.radarAngle) * 12 * z);
         ctx.stroke();
         break;
       }
 
       case 'cnc_lathe': {
-        // Lathe base
         ctx.fillStyle = '#475569';
-        ctx.fillRect(x - 16, y - 14, 32, 12);
-        // Laser cutter arm
+        ctx.fillRect(x - 16 * z, y - 14 * z, 32 * z, 12 * z);
         ctx.fillStyle = '#ec4899';
-        ctx.fillRect(x - 4, y - 24, 8, 12);
+        ctx.fillRect(x - 4 * z, y - 24 * z, 8 * z, 12 * z);
         if (st.pulseTime > 0.2) {
           ctx.strokeStyle = '#f43f5e';
-          ctx.lineWidth = 1.5;
+          ctx.lineWidth = 1.5 * z;
           ctx.beginPath();
-          ctx.moveTo(x, y - 12);
-          ctx.lineTo(x, y - 2);
+          ctx.moveTo(x, y - 12 * z);
+          ctx.lineTo(x, y - 2 * z);
           ctx.stroke();
         }
         break;
       }
 
       case 'test_furnace': {
-        // Industrial power reactor
         ctx.fillStyle = '#1e293b';
         ctx.beginPath();
-        ctx.arc(x, y - 12, 14, 0, Math.PI * 2);
+        ctx.arc(x, y - 12 * z, 14 * z, 0, Math.PI * 2);
         ctx.fill();
-        // Heat core
         ctx.fillStyle = st.pulseTime > 0.1 ? '#10b981' : '#047857';
         ctx.beginPath();
-        ctx.arc(x, y - 12, 7, 0, Math.PI * 2);
+        ctx.arc(x, y - 12 * z, 7 * z, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
 
       case 'phone_booth': {
-        // Telephone booth
         ctx.fillStyle = '#581c87';
-        ctx.fillRect(x - 10, y - 28, 20, 26);
+        ctx.fillRect(x - 10 * z, y - 28 * z, 20 * z, 26 * z);
         ctx.fillStyle = '#c084fc';
-        ctx.fillRect(x - 6, y - 24, 12, 10); // glass window
-        // Handset
+        ctx.fillRect(x - 6 * z, y - 24 * z, 12 * z, 10 * z);
         ctx.fillStyle = '#f3e8ff';
-        ctx.fillRect(x + 2, y - 18, 3, 6);
+        ctx.fillRect(x + 2 * z, y - 18 * z, 3 * z, 6 * z);
         break;
       }
 
       case 'conveyor': {
-        // Conveyor belt rollers
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(x - 18, y - 8, 36, 8);
+        ctx.fillRect(x - 18 * z, y - 8 * z, 36 * z, 8 * z);
         ctx.fillStyle = '#14b8a6';
-        // Moving crates
-        const crateX = x - 14 + this.conveyorOffset * 24;
-        ctx.fillRect(crateX, y - 14, 8, 7);
+        const crateX = x - 14 * z + this.conveyorOffset * 24 * z;
+        ctx.fillRect(crateX, y - 14 * z, 8 * z, 7 * z);
         break;
       }
 
       case 'security_gate': {
-        // Toll barrier pillars
         ctx.fillStyle = '#475569';
-        ctx.fillRect(x - 16, y - 22, 6, 22);
-        ctx.fillRect(x + 10, y - 22, 6, 22);
-
-        // Striped barrier gate
+        ctx.fillRect(x - 16 * z, y - 22 * z, 6 * z, 22 * z);
+        ctx.fillRect(x + 10 * z, y - 22 * z, 6 * z, 22 * z);
         ctx.fillStyle = '#ef4444';
-        ctx.fillRect(x - 16, y - 14, 32, 5);
+        ctx.fillRect(x - 16 * z, y - 14 * z, 32 * z, 5 * z);
         ctx.fillStyle = '#fbbf24';
-        ctx.fillRect(x - 10, y - 14, 6, 5);
-        ctx.fillRect(x + 2, y - 14, 6, 5);
-
-        // Warning lantern
+        ctx.fillRect(x - 10 * z, y - 14 * z, 6 * z, 5 * z);
+        ctx.fillRect(x + 2 * z, y - 14 * z, 6 * z, 5 * z);
         ctx.fillStyle = st.pulseTime > 0.1 || this.emergencyStopActive ? '#ef4444' : '#64748b';
         ctx.beginPath();
-        ctx.arc(x - 13, y - 24, 3.5, 0, Math.PI * 2);
+        ctx.arc(x - 13 * z, y - 24 * z, 3.5 * z, 0, Math.PI * 2);
         ctx.fill();
         break;
       }
@@ -619,40 +654,35 @@ export class WorkshopCanvas {
   private renderWorker(worker: WorkerAgent): void {
     const pos = this.isoToScreen(worker.x, worker.y);
     const ctx = this.ctx;
+    const z = this.zoom;
 
     ctx.save();
 
-    // Shadow
     ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y, 8, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(pos.x, pos.y, 8 * z, 4 * z, 0, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.fill();
 
-    // Character Body
-    const bounce = worker.state === 'walking' ? Math.sin(Date.now() / 120) * 2 : 0;
-    const bodyY = pos.y - 12 + bounce;
+    const bounce = worker.state === 'walking' ? Math.sin(Date.now() / 120) * 2 * z : 0;
+    const bodyY = pos.y - 12 * z + bounce;
 
-    // Torso / Vest
     ctx.fillStyle = worker.color;
     ctx.beginPath();
-    ctx.arc(pos.x, bodyY, 6, 0, Math.PI * 2);
+    ctx.arc(pos.x, bodyY, 6 * z, 0, Math.PI * 2);
     ctx.fill();
 
-    // Safety Hard Hat
     ctx.fillStyle = '#fbbf24';
     ctx.beginPath();
-    ctx.arc(pos.x, bodyY - 5, 4, Math.PI, 0);
+    ctx.arc(pos.x, bodyY - 5 * z, 4 * z, Math.PI, 0);
     ctx.fill();
 
-    // Name tag
-    ctx.font = 'bold 9px Inter, sans-serif';
+    ctx.font = `bold ${Math.max(8, 9 * z)}px Inter, sans-serif`;
     ctx.fillStyle = '#e2e8f0';
     ctx.textAlign = 'center';
-    ctx.fillText(worker.name, pos.x, bodyY - 12);
+    ctx.fillText(worker.name, pos.x, bodyY - 12 * z);
 
-    // Speech / Action bubble
     if (worker.speechBubble && worker.speechBubble.expiresAt > Date.now()) {
-      this.drawSpeechBubble(pos.x, bodyY - 24, worker.speechBubble.text);
+      this.drawSpeechBubble(pos.x, bodyY - 24 * z, worker.speechBubble.text);
     }
 
     ctx.restore();
@@ -660,19 +690,19 @@ export class WorkshopCanvas {
 
   private drawSpeechBubble(x: number, y: number, text: string): void {
     const ctx = this.ctx;
-    ctx.font = '10px Inter, monospace';
+    ctx.font = `${Math.max(8, 10 * this.zoom)}px Inter, monospace`;
     const textMetrics = ctx.measureText(text);
-    const padding = 6;
-    const width = Math.min(220, textMetrics.width + padding * 2);
-    const height = 18;
+    const padding = 6 * this.zoom;
+    const width = Math.min(240 * this.zoom, textMetrics.width + padding * 2);
+    const height = 18 * this.zoom;
 
     ctx.save();
     ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
     ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 * this.zoom;
 
     ctx.beginPath();
-    ctx.roundRect(x - width / 2, y - height, width, height, 4);
+    ctx.roundRect(x - width / 2, y - height, width, height, 4 * this.zoom);
     ctx.fill();
     ctx.stroke();
 

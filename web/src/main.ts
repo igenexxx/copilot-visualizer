@@ -47,6 +47,8 @@ class App {
           <button id="btn-view-workshop" class="view-btn active">🏭 Workshop Floor</button>
           <button id="btn-view-graph" class="view-btn">🕸️ Flow Graph</button>
           <button id="btn-view-split" class="view-btn">⚡ Split Dual</button>
+          <button id="btn-spread-graph" class="view-btn" title="Unfold and neatly organize graph columns">📐 Spread Graph</button>
+          <button id="btn-center-graph" class="view-btn" title="Center & Fit View">🎯 Center View</button>
         </div>
 
         <div class="header-right">
@@ -186,7 +188,7 @@ class App {
     };
 
     this.graphCanvas.onSelectNode = (node) => {
-      this.renderInspector(`🕸️ ${node.label}`, `Type: ${node.type} | ID: ${node.id}`, { sublabel: node.sublabel, timestamp: node.timestamp });
+      this.renderInspector(`🕸️ ${node.label}`, `Group: ${node.group.toUpperCase()} | ID: ${node.id}`, { sublabel: node.sublabel, timestamp: node.timestamp });
     };
 
     this.workshopCanvas.start();
@@ -221,8 +223,21 @@ class App {
     };
 
     btnWorkshop.addEventListener('click', () => setView('workshop'));
-    btnGraph.addEventListener('click', () => setView('graph'));
+    btnGraph.addEventListener('click', () => {
+      setView('graph');
+      this.graphCanvas.centerView();
+    });
     btnSplit.addEventListener('click', () => setView('split'));
+
+    const btnSpread = document.getElementById('btn-spread-graph')!;
+    btnSpread.addEventListener('click', () => {
+      this.graphCanvas.spreadLayout();
+    });
+
+    const btnCenter = document.getElementById('btn-center-graph')!;
+    btnCenter.addEventListener('click', () => {
+      this.graphCanvas.centerView();
+    });
 
     // Emergency Stop Button
     const btnEstop = document.getElementById('btn-estop')!;
