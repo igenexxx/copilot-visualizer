@@ -99,10 +99,12 @@ export class WorkshopCanvas {
 
     const list: Workstation[] = [
       createStation('foreman_desk', level === 0 ? 'Master Command Desk' : `Subagent Desk ${level}F`, 5, 5, '#f59e0b', 'Orchestration, planning & blueprint architecture'),
-      createStation('filing_vault', 'Codebase Vault', 2, 2, '#3b82f6', 'File inspections, reading & document navigation'),
-      createStation('search_radar', 'Search Radar', 2, 8, '#06b6d4', 'Codebase symbol index & pattern scanning'),
-      createStation('cnc_lathe', 'CNC Machining Lathe', 8, 2, '#ec4899', 'Code forging, patch editing & file modification'),
+      createStation('server_rack', 'MCP Server Vault', 2, 2, '#38bdf8', '19" Enterprise server racks & MCP fiber bridges'),
+      createStation('subagent_office', 'Subagent Glass Suite', 2, 8, '#a855f7', 'Subagent isolation cubicles & blueprint drafting'),
+      createStation('repo_shelf', 'Repo Shelves (/pkg /cmd /web)', 8, 2, '#3b82f6', 'Project repository directory compartment shelves'),
+      createStation('cnc_lathe', 'CNC Machining Lathe', 8, 5, '#ec4899', 'Code forging, patch editing & file modification'),
       createStation('test_furnace', 'Test Range & Furnace', 8, 8, '#10b981', 'Command execution, test suites & build verification'),
+      createStation('search_radar', 'Search Radar', 5, 2, '#06b6d4', 'Codebase symbol index & pattern scanning'),
       createStation('phone_booth', 'MCP Dispatch', 1, 5, '#a855f7', 'External MCP Server bridges & remote RPC phone lines'),
       createStation('conveyor', 'Conveyor & Elevator', 9, 5, '#14b8a6', 'Inter-floor transport & shipping dock'),
       createStation('security_gate', 'Security Gate', 5, 9, '#ef4444', 'Human-in-the-Loop approval gate & checkpoint barrier'),
@@ -407,6 +409,48 @@ export class WorkshopCanvas {
           floorLevel,
         });
       }
+    } else if (station === 'server_rack') {
+      for (let i = 0; i < 14; i++) {
+        this.particles.push({
+          x: pos.x + (Math.random() - 0.5) * 16,
+          y: pos.y,
+          vx: (Math.random() - 0.5) * 1.2,
+          vy: -Math.random() * 3 - 1,
+          color: Math.random() > 0.5 ? '#38bdf8' : '#06b6d4',
+          size: Math.random() * 3 + 1,
+          life: 1.0,
+          maxLife: 1.0,
+          floorLevel,
+        });
+      }
+    } else if (station === 'subagent_office') {
+      for (let i = 0; i < 10; i++) {
+        this.particles.push({
+          x: pos.x + (Math.random() - 0.5) * 18,
+          y: pos.y,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: -Math.random() * 2.5 - 0.8,
+          color: Math.random() > 0.4 ? '#c084fc' : '#a855f7',
+          size: Math.random() * 3 + 1,
+          life: 1.0,
+          maxLife: 1.0,
+          floorLevel,
+        });
+      }
+    } else if (station === 'repo_shelf') {
+      for (let i = 0; i < 10; i++) {
+        this.particles.push({
+          x: pos.x + (Math.random() - 0.5) * 16,
+          y: pos.y,
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: -Math.random() * 2.5 - 0.5,
+          color: Math.random() > 0.5 ? '#3b82f6' : '#60a5fa',
+          size: Math.random() * 3 + 1,
+          life: 1.0,
+          maxLife: 1.0,
+          floorLevel,
+        });
+      }
     }
   }
 
@@ -687,6 +731,11 @@ export class WorkshopCanvas {
       }
     }
 
+    // Multi-Room Architectural Glass Partitions & Zones
+    this.renderRoomZone(0, 0, 4, 4, fl.level, '⚡ MCP SERVER VAULT', '#38bdf8', 'rgba(56, 189, 248, 0.06)');
+    this.renderRoomZone(0, 6, 4, 10, fl.level, '👥 SUBAGENT GLASS OFFICE', '#a855f7', 'rgba(168, 85, 247, 0.06)');
+    this.renderRoomZone(6, 0, 10, 4, fl.level, '📁 REPO TREE MODULE SHELVES', '#3b82f6', 'rgba(59, 130, 246, 0.05)');
+
     // Floor Title Plaque in Tower Mode
     const plaquePos = this.isoToScreen(0, 5, fl.level);
     this.ctx.save();
@@ -714,6 +763,52 @@ export class WorkshopCanvas {
     for (const worker of fl.workers.values()) {
       this.renderWorker(worker, fl.level);
     }
+  }
+
+  private renderRoomZone(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    floorLevel: number,
+    title: string,
+    borderColor: string,
+    fillColor: string
+  ): void {
+    const p1 = this.isoToScreen(x1, y1, floorLevel);
+    const p2 = this.isoToScreen(x2, y1, floorLevel);
+    const p3 = this.isoToScreen(x2, y2, floorLevel);
+    const p4 = this.isoToScreen(x1, y2, floorLevel);
+
+    this.ctx.save();
+
+    // Floor area tint
+    this.ctx.beginPath();
+    this.ctx.moveTo(p1.x, p1.y);
+    this.ctx.lineTo(p2.x, p2.y);
+    this.ctx.lineTo(p3.x, p3.y);
+    this.ctx.lineTo(p4.x, p4.y);
+    this.ctx.closePath();
+    this.ctx.fillStyle = fillColor;
+    this.ctx.fill();
+
+    // Glass wall perimeter
+    this.ctx.strokeStyle = borderColor;
+    this.ctx.lineWidth = 1.2 * this.zoom;
+    this.ctx.setLineDash([4 * this.zoom, 2 * this.zoom]);
+    this.ctx.stroke();
+    this.ctx.setLineDash([]);
+
+    // Room Label
+    const centerX = (p1.x + p3.x) / 2;
+    const topY = Math.min(p1.y, p2.y, p3.y, p4.y) - 6 * this.zoom;
+
+    this.ctx.font = `bold ${Math.max(6, 8 * this.zoom)}px Inter, monospace`;
+    this.ctx.fillStyle = borderColor;
+    this.ctx.textAlign = 'center';
+    this.ctx.fillText(title, centerX, topY);
+
+    this.ctx.restore();
   }
 
   private renderWorkstation(st: Workstation, floorLevel: number): void {
@@ -795,6 +890,80 @@ export class WorkshopCanvas {
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 1 * z;
         ctx.strokeRect(x - 6 * z, y - 12 * z, 12 * z, 5 * z);
+        break;
+      }
+
+      case 'server_rack': {
+        // 19" Enterprise Server Cabinet
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(x - 12 * z, y - 26 * z, 24 * z, 26 * z);
+        ctx.strokeStyle = st.pulseTime > 0 ? '#38bdf8' : '#334155';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 12 * z, y - 26 * z, 24 * z, 26 * z);
+
+        // Rack Units (4U slots)
+        for (let u = 0; u < 4; u++) {
+          const uY = y - 24 * z + u * 6 * z;
+          ctx.fillStyle = '#1e293b';
+          ctx.fillRect(x - 10 * z, uY, 20 * z, 4.5 * z);
+
+          // Blinking LED cluster
+          const time = Date.now() * 0.005 + u;
+          const led1 = Math.sin(time * 3) > 0;
+          const led2 = Math.cos(time * 2) > 0;
+
+          ctx.fillStyle = led1 ? (st.overheating ? '#ef4444' : '#10b981') : '#064e3b';
+          ctx.fillRect(x - 8 * z, uY + 1.5 * z, 2 * z, 2 * z);
+
+          ctx.fillStyle = led2 ? '#38bdf8' : '#0c4a6e';
+          ctx.fillRect(x - 4 * z, uY + 1.5 * z, 2 * z, 2 * z);
+
+          ctx.fillStyle = st.pulseTime > 0.1 ? '#f59e0b' : '#78350f';
+          ctx.fillRect(x, uY + 1.5 * z, 2 * z, 2 * z);
+        }
+        break;
+      }
+
+      case 'subagent_office': {
+        // Glass walled subagent workspace with holo-screen
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.15)';
+        ctx.fillRect(x - 14 * z, y - 20 * z, 28 * z, 20 * z);
+        ctx.strokeStyle = '#a855f7';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 14 * z, y - 20 * z, 28 * z, 20 * z);
+
+        // Desk
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(x - 10 * z, y - 10 * z, 20 * z, 6 * z);
+
+        // Holo monitor
+        ctx.fillStyle = '#c084fc';
+        ctx.fillRect(x - 5 * z, y - 18 * z, 10 * z, 6 * z);
+        ctx.strokeStyle = '#e9d5ff';
+        ctx.lineWidth = 0.8 * z;
+        ctx.strokeRect(x - 5 * z, y - 18 * z, 10 * z, 6 * z);
+        break;
+      }
+
+      case 'repo_shelf': {
+        // Warehouse Shelving Compartments for /pkg, /cmd, /web
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x - 14 * z, y - 24 * z, 28 * z, 24 * z);
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 14 * z, y - 24 * z, 28 * z, 24 * z);
+
+        // Top Shelf (/pkg)
+        ctx.fillStyle = '#3b82f6';
+        ctx.fillRect(x - 11 * z, y - 21 * z, 22 * z, 4 * z);
+
+        // Middle Shelf (/cmd)
+        ctx.fillStyle = '#10b981';
+        ctx.fillRect(x - 11 * z, y - 14 * z, 22 * z, 4 * z);
+
+        // Bottom Shelf (/web)
+        ctx.fillStyle = '#ec4899';
+        ctx.fillRect(x - 11 * z, y - 7 * z, 22 * z, 4 * z);
         break;
       }
 

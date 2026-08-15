@@ -28,8 +28,19 @@ export type StationType =
   | 'cnc_lathe'
   | 'test_furnace'
   | 'phone_booth'
+  | 'server_rack'
+  | 'subagent_office'
+  | 'repo_shelf'
   | 'conveyor'
   | 'security_gate';
+
+export interface RepoFolder {
+  name: string;
+  relPath: string;
+  fileCount: number;
+  sizeBytes: number;
+  fileTypes: string[];
+}
 
 export interface VisualizerEvent {
   id: string;

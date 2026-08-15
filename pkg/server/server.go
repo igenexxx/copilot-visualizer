@@ -11,6 +11,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
+	"github.com/zhenya/copilot-visualizer/pkg/repotree"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
 )
 
@@ -68,6 +69,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/tape/load", s.handleTapeLoad)
 	s.mux.HandleFunc("/api/tape/save", s.handleTapeSave)
 	s.mux.HandleFunc("/api/tape/current", s.handleTapeCurrent)
+
+	// Repo Tree scanner
+	s.mux.HandleFunc("/api/repo-tree", s.handleRepoTree)
 
 	if s.staticFS != nil {
 		fileServer := http.FileServer(http.FS(s.staticFS))
@@ -373,3 +377,19 @@ func (s *Server) handleSimSpeed(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"status": "updated", "speed": multiplier})
 }
+
+func (s *Server) handleRepoTree(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	scanner := repotree.NewScanner(".")
+	folders, err := scanner.ScanTopLevelFolders()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(folders)
+}
+

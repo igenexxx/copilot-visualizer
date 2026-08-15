@@ -212,3 +212,30 @@ func TestServer_StaticFileServing(t *testing.T) {
 		t.Fatalf("expected body to contain 'Workshop UI Asset', got: %s", rec.Body.String())
 	}
 }
+
+func TestServer_RepoTree(t *testing.T) {
+	srv, _, _, _, _ := setupTestServer(t)
+
+	// 1. Valid GET
+	req := httptest.NewRequest(http.MethodGet, "/api/repo-tree", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	var folders []map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&folders); err != nil {
+		t.Fatalf("failed to decode repo tree: %v", err)
+	}
+
+	// 2. Disallowed Method POST
+	postReq := httptest.NewRequest(http.MethodPost, "/api/repo-tree", nil)
+	postRec := httptest.NewRecorder()
+	srv.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed, got %d", postRec.Code)
+	}
+}
+

@@ -34,6 +34,8 @@ class App {
     activeAgents: 1,
   };
 
+  private repoFolders: any[] = [];
+
   constructor() {
     this.client = new VisualizerClient();
     this.rpg = new RPGEngine();
@@ -370,17 +372,45 @@ class App {
     this.workshopCanvas.onSelectElement = (type, data) => {
       if (type === 'station') {
         const thermalStatus = data.overheating ? '🔥 OVERHEATING' : data.heatLevel > 30 ? '🌡️ WARM' : '❄️ OPTIMAL';
+        
+        let details: Record<string, any> = {
+          temperature: `${data.temperatureC}°C (${thermalStatus})`,
+          heatLevel: `${data.heatLevel.toFixed(1)}%`,
+          wearAndTear: `${data.wearPct.toFixed(1)}%`,
+          totalOperations: `${data.totalOperations} cycles`,
+          itemsCrafted: data.itemsCount,
+          lastOperation: data.lastEvent?.title || 'None',
+        };
+
+        if (data.type === 'server_rack') {
+          details = {
+            cabinetStatus: 'ONLINE (Blinking LED Array)',
+            cooling: 'Ventilation Grilles Active',
+            mcpRPCCalls: `${this.stats.mcpCalls} invocations`,
+            fiberBridges: 'Antigravity, Stitch, GitHub, Gopls',
+            ...details,
+          };
+        } else if (data.type === 'subagent_office') {
+          details = {
+            seatedAgents: `${this.stats.activeAgents} subagent specialists`,
+            isolationStatus: 'Glass Partition Sealed',
+            blueprintDrafting: 'Active & Synchronized',
+            ...details,
+          };
+        } else if (data.type === 'repo_shelf') {
+          const breakdown = this.repoFolders.map(f => `${f.name}/ (${f.fileCount} files)`).join(', ');
+          details = {
+            topLevelFolders: `${this.repoFolders.length || 3} compartments`,
+            directoryShelves: breakdown || '/cmd, /pkg, /web',
+            filesForged: this.stats.filesWritten,
+            ...details,
+          };
+        }
+
         this.renderInspector(
           `⚙️ ${data.name}`,
           `${data.description}`,
-          {
-            temperature: `${data.temperatureC}°C (${thermalStatus})`,
-            heatLevel: `${data.heatLevel.toFixed(1)}%`,
-            wearAndTear: `${data.wearPct.toFixed(1)}%`,
-            totalOperations: `${data.totalOperations} cycles`,
-            itemsCrafted: data.itemsCount,
-            lastOperation: data.lastEvent?.title || 'None',
-          }
+          details
         );
 
         const pane = document.getElementById('inspector-content');
@@ -800,6 +830,7 @@ class App {
 
   private async loadInitialHistory(): Promise<void> {
     this.tokenomics.resetSession('gemini-3.7-flash');
+    this.repoFolders = await this.client.fetchRepoTree();
     const history = await this.client.fetchHistory();
     history.forEach((evt) => this.handleIncomingEvent(evt));
 
