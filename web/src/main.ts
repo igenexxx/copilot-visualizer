@@ -178,12 +178,8 @@ class App {
           <div class="hud-top-right">
             <div class="odometer-card" title="Real-time LLM API Cost Odometer based on active agent telemetry">
               <div class="odometer-title-row">
-                <span id="odometer-agent-badge" class="odometer-model-badge">🔮 Antigravity (Gemini 2.5)</span>
-                <select id="pricing-model-select" class="speed-select" style="padding: 1px 4px; font-size: 8px;">
-                  <option value="antigravity" selected>Gemini 2.5 Pro</option>
-                  <option value="claude_code">Claude 3.7 Sonnet</option>
-                  <option value="copilot_cli">GPT-4o (Copilot)</option>
-                </select>
+                <span id="odometer-agent-badge" class="odometer-model-badge">⚡ Gemini 3.7 Flash</span>
+                <select id="pricing-model-select" class="speed-select" style="padding: 1px 4px; font-size: 8px;"></select>
               </div>
               <div class="odometer-counter">
                 <span class="odometer-currency">$</span>
@@ -1040,6 +1036,9 @@ class App {
       if (odoOut) odoOut.textContent = `Out: ${(state.totalOutputTokens / 1000).toFixed(1)}k`;
       if (odoCache) odoCache.textContent = `Cache: ${(state.totalCachedTokens / 1000).toFixed(1)}k`;
     };
+
+    // Trigger initial render
+    this.tokenomics.onUpdate(this.tokenomics.getState());
   }
 
   private renderRPGHotbar(): void {
