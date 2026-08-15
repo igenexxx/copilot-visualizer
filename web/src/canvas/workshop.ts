@@ -123,10 +123,23 @@ export class WorkshopCanvas {
         pulseTime: 0,
         itemsCount: 0,
       },
+      {
+        type: 'security_gate',
+        name: 'Security Gate & Barrier',
+        gridX: 4,
+        gridY: 7,
+        color: '#ef4444',
+        description: 'Human-in-the-Loop approval gate & checkpoint barrier',
+        active: false,
+        pulseTime: 0,
+        itemsCount: 0,
+      },
     ];
 
     stations.forEach((st) => this.workstations.set(st.type, st));
   }
+
+  public emergencyStopActive = false;
 
   private initWorkers(): void {
     const foreman: WorkerAgent = {
@@ -226,7 +239,12 @@ export class WorkshopCanvas {
       expiresAt: Date.now() + 4000,
     };
 
-    if (evt.type === 'mcp.call' || evt.type === 'mcp.response') {
+    if (evt.type === 'emergency.stop') {
+      this.emergencyStopActive = evt.payload?.active === true;
+      for (const w of this.workers.values()) {
+        w.state = this.emergencyStopActive ? 'stopped' : 'idle';
+      }
+    } else if (evt.type === 'mcp.call' || evt.type === 'mcp.response') {
       worker.state = 'on_phone';
     } else if (evt.type === 'agent.think') {
       worker.state = 'thinking';
@@ -370,6 +388,30 @@ export class WorkshopCanvas {
       this.ctx.beginPath();
       this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       this.ctx.fill();
+      this.ctx.restore();
+    }
+
+    // 6. Emergency Stop Red Alert Tint
+    if (this.emergencyStopActive) {
+      const flash = (Math.sin(Date.now() / 200) + 1) / 2; // 0..1 pulse
+      this.ctx.save();
+      this.ctx.fillStyle = `rgba(239, 68, 68, ${0.12 + flash * 0.15})`;
+      this.ctx.fillRect(0, 0, width, height);
+
+      // Warning Banner across top of canvas
+      this.ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+      this.ctx.strokeStyle = '#ef4444';
+      this.ctx.lineWidth = 2;
+      this.ctx.beginPath();
+      this.ctx.roundRect(width / 2 - 180, 16, 360, 36, 6);
+      this.ctx.fill();
+      this.ctx.stroke();
+
+      this.ctx.font = 'bold 12px Inter, monospace';
+      this.ctx.fillStyle = '#ef4444';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('🚨 EMERGENCY BRAKE ENGAGED — FACTORY PAUSED', width / 2, 34);
       this.ctx.restore();
     }
   }
@@ -548,6 +590,27 @@ export class WorkshopCanvas {
         // Moving crates
         const crateX = x - 14 + this.conveyorOffset * 24;
         ctx.fillRect(crateX, y - 14, 8, 7);
+        break;
+      }
+
+      case 'security_gate': {
+        // Toll barrier pillars
+        ctx.fillStyle = '#475569';
+        ctx.fillRect(x - 16, y - 22, 6, 22);
+        ctx.fillRect(x + 10, y - 22, 6, 22);
+
+        // Striped barrier gate
+        ctx.fillStyle = '#ef4444';
+        ctx.fillRect(x - 16, y - 14, 32, 5);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(x - 10, y - 14, 6, 5);
+        ctx.fillRect(x + 2, y - 14, 6, 5);
+
+        // Warning lantern
+        ctx.fillStyle = st.pulseTime > 0.1 || this.emergencyStopActive ? '#ef4444' : '#64748b';
+        ctx.beginPath();
+        ctx.arc(x - 13, y - 24, 3.5, 0, Math.PI * 2);
+        ctx.fill();
         break;
       }
     }

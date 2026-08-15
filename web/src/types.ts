@@ -13,7 +13,11 @@ export type EventType =
   | 'mcp.call'
   | 'mcp.response'
   | 'subagent.delegate'
-  | 'subagent.return';
+  | 'subagent.return'
+  | 'intervention.prompt'
+  | 'checkpoint.request'
+  | 'checkpoint.decision'
+  | 'emergency.stop';
 
 export type AgentRole = 'foreman' | 'crafter' | 'inspector' | 'tester' | 'operator';
 
@@ -24,7 +28,8 @@ export type StationType =
   | 'cnc_lathe'
   | 'test_furnace'
   | 'phone_booth'
-  | 'conveyor';
+  | 'conveyor'
+  | 'security_gate';
 
 export interface VisualizerEvent {
   id: string;
@@ -48,7 +53,7 @@ export interface WorkerAgent {
   targetX: number;
   targetY: number;
   currentStation?: StationType;
-  state: 'idle' | 'walking' | 'working' | 'thinking' | 'on_phone';
+  state: 'idle' | 'walking' | 'working' | 'thinking' | 'on_phone' | 'stopped';
   activeEvent?: VisualizerEvent;
   color: string;
   speechBubble?: {
@@ -68,4 +73,14 @@ export interface Workstation {
   pulseTime: number;
   lastEvent?: VisualizerEvent;
   itemsCount: number;
+}
+
+export interface CheckpointItem {
+  id: string;
+  sessionId: string;
+  actionType: string;
+  description: string;
+  payload?: Record<string, any>;
+  createdAt: number;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'MODIFIED';
 }

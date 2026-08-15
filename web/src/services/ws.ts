@@ -114,6 +114,46 @@ export class VisualizerClient {
     return [];
   }
 
+  public async toggleEmergencyStop(active: boolean, reason?: string): Promise<void> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    await fetch(`${host}/api/intervention/emergency-stop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active, reason }),
+    });
+  }
+
+  public async sendIntercom(sessionId: string, message: string): Promise<void> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    await fetch(`${host}/api/intervention/intercom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, message }),
+    });
+  }
+
+  public async respondCheckpoint(checkpointId: string, decision: 'APPROVED' | 'REJECTED' | 'MODIFIED', feedback?: string): Promise<void> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    await fetch(`${host}/api/intervention/checkpoint/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkpointId, decision, feedback }),
+    });
+  }
+
+  public async fetchCheckpoints(): Promise<any[]> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/intervention/checkpoints`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed to fetch checkpoints:', e);
+    }
+    return [];
+  }
+
   public async startSimulator(loop: boolean = true): Promise<void> {
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     await fetch(`${host}/api/simulator/start?loop=${loop}`, { method: 'POST' });

@@ -12,6 +12,8 @@ class App {
 
   private events: VisualizerEvent[] = [];
   private isSimRunning = true;
+  private emergencyStopActive = false;
+  private activeSessionId = 'global';
 
   // Metrics
   private stats = {
@@ -48,6 +50,11 @@ class App {
         </div>
 
         <div class="header-right">
+          <button id="btn-estop" class="btn-estop" title="Emergency Stop Lever">
+            <span>🚨</span>
+            <span id="estop-label">E-STOP BRAKE</span>
+          </button>
+
           <div id="session-badge" class="session-badge" title="Auto-discovered session">
             <span class="session-dot"></span>
             <span id="session-text">SEARCHING SESSIONS...</span>
@@ -100,6 +107,30 @@ class App {
         </main>
 
         <aside class="sidebar">
+          <!-- Foreman Intercom Section -->
+          <div class="intercom-section">
+            <div class="intercom-title">
+              <span>📻</span>
+              <span>Foreman Intercom (Guide Agent)</span>
+            </div>
+            <form id="intercom-form" class="intercom-form">
+              <input
+                id="intercom-input"
+                class="intercom-input"
+                type="text"
+                placeholder="Send prompt or guidance to agent..."
+                autocomplete="off"
+              />
+              <button type="submit" class="intercom-send-btn">Send</button>
+            </form>
+            <div class="intercom-chips">
+              <button type="button" class="chip-btn" data-msg="Focus on fixing unit test failures">🎯 Fix Tests</button>
+              <button type="button" class="chip-btn" data-msg="Verify concurrency and race condition safety">🏎️ Race Safe</button>
+              <button type="button" class="chip-btn" data-msg="Revert last modification and try alternate approach">↩️ Revert Last</button>
+              <button type="button" class="chip-btn" data-msg="Perform security audit on all input bounds">🛡️ Security Check</button>
+            </div>
+          </div>
+
           <div class="sidebar-header">
             <span class="sidebar-title">Station & Agent Inspector</span>
           </div>
@@ -122,6 +153,21 @@ class App {
 
           <div id="feed-pane" class="feed-pane"></div>
         </aside>
+      </div>
+
+      <!-- Checkpoint Approval Dialog Modal Container -->
+      <div id="checkpoint-modal" class="checkpoint-overlay" style="display: none;">
+        <div class="checkpoint-card">
+          <div class="checkpoint-header">
+            <span>⚠️</span>
+            <span id="cp-modal-title">HUMAN-IN-THE-LOOP CHECKPOINT</span>
+          </div>
+          <div id="cp-modal-desc" class="checkpoint-desc"></div>
+          <div class="checkpoint-actions">
+            <button id="btn-cp-reject" class="btn-reject">❌ Reject Action</button>
+            <button id="btn-cp-approve" class="btn-approve">✅ Approve & Execute</button>
+          </div>
+        </div>
       </div>
     `;
 
@@ -178,6 +224,37 @@ class App {
     btnGraph.addEventListener('click', () => setView('graph'));
     btnSplit.addEventListener('click', () => setView('split'));
 
+    // Emergency Stop Button
+    const btnEstop = document.getElementById('btn-estop')!;
+    btnEstop.addEventListener('click', async () => {
+      this.emergencyStopActive = !this.emergencyStopActive;
+      btnEstop.classList.toggle('active', this.emergencyStopActive);
+      document.getElementById('estop-label')!.textContent = this.emergencyStopActive ? 'BRAKE ACTIVE (LIFT)' : 'E-STOP BRAKE';
+      await this.client.toggleEmergencyStop(this.emergencyStopActive, this.emergencyStopActive ? 'Manual developer emergency brake' : 'Developer cleared emergency stop');
+    });
+
+    // Intercom Submission
+    const intercomForm = document.getElementById('intercom-form') as HTMLFormElement;
+    const intercomInput = document.getElementById('intercom-input') as HTMLInputElement;
+
+    intercomForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = intercomInput.value.trim();
+      if (!msg) return;
+      await this.client.sendIntercom(this.activeSessionId, msg);
+      intercomInput.value = '';
+    });
+
+    // Intercom Quick Chips
+    document.querySelectorAll('.chip-btn').forEach((chip) => {
+      chip.addEventListener('click', async () => {
+        const msg = chip.getAttribute('data-msg');
+        if (msg) {
+          await this.client.sendIntercom(this.activeSessionId, msg);
+        }
+      });
+    });
+
     // Simulation toggle
     const btnSim = document.getElementById('btn-sim-toggle')!;
     btnSim.addEventListener('click', async () => {
@@ -199,13 +276,24 @@ class App {
       await this.client.setSimulatorSpeed(speed);
     });
 
-    // Inject custom event
+    // Inject custom event (includes checkpoint simulation)
     const btnInject = document.getElementById('btn-trigger-burst')!;
     btnInject.addEventListener('click', async () => {
       const sampleEvents: Partial<VisualizerEvent>[] = [
         {
+          id: `manual-cp-${Date.now()}`,
+          sessionId: this.activeSessionId,
+          type: 'checkpoint.request',
+          agentId: 'agent-crafter-1',
+          agentRole: 'crafter',
+          station: 'security_gate',
+          title: '⚠️ Checkpoint: rm -rf build/ && git push',
+          summary: 'Agent requests permission to wipe build directory and push to remote',
+          payload: { checkpointId: `cp-${Date.now()}`, actionType: 'run_command', description: 'rm -rf build/ && git push' },
+        },
+        {
           id: `manual-write-${Date.now()}`,
-          sessionId: 'sess-manual',
+          sessionId: this.activeSessionId,
           type: 'file.write',
           agentId: 'agent-crafter-1',
           agentRole: 'crafter',
@@ -213,17 +301,6 @@ class App {
           title: 'Manual Forge: api_client.go',
           summary: 'Injected custom code write event with sparks',
           payload: { file: 'pkg/api/client.go', lines: 54 },
-        },
-        {
-          id: `manual-mcp-${Date.now()}`,
-          sessionId: 'sess-manual',
-          type: 'mcp.call',
-          agentId: 'agent-crafter-1',
-          agentRole: 'operator',
-          station: 'phone_booth',
-          title: 'Manual MCP: Database Linter',
-          summary: 'Calling Postgres schema validator tool',
-          payload: { tool: 'lint_schema', table: 'users' },
         },
       ];
       const randomEvt = sampleEvents[Math.floor(Math.random() * sampleEvents.length)];
@@ -241,7 +318,6 @@ class App {
   }
 
   private setupSubscriptions(): void {
-    // Status
     const wsDot = document.getElementById('ws-dot')!;
     const wsText = document.getElementById('ws-text')!;
 
@@ -250,7 +326,6 @@ class App {
       wsText.textContent = connected ? 'LIVE WS CONNECTED' : 'DISCONNECTED (RETRYING)';
     });
 
-    // Events
     this.client.onEvent((event) => {
       this.handleIncomingEvent(event);
     });
@@ -263,6 +338,7 @@ class App {
     const sessions = await this.client.fetchSessions();
     if (sessions && sessions.length > 0) {
       const active = sessions[0];
+      this.activeSessionId = active.id;
       const sessEl = document.getElementById('session-text');
       if (sessEl) {
         sessEl.textContent = `${active.source.toUpperCase()}: ${active.id.slice(0, 10)}`;
@@ -274,11 +350,25 @@ class App {
     this.events.unshift(event);
     if (this.events.length > 100) this.events.pop();
 
-    if (event.sessionId) {
+    if (event.sessionId && event.sessionId !== 'global') {
+      this.activeSessionId = event.sessionId;
       const sessEl = document.getElementById('session-text');
       if (sessEl) {
         sessEl.textContent = `LIVE: ${event.sessionId.slice(0, 12)}`;
       }
+    }
+
+    // Handle Emergency Stop event
+    if (event.type === 'emergency.stop') {
+      this.emergencyStopActive = event.payload?.active === true;
+      const btnEstop = document.getElementById('btn-estop')!;
+      btnEstop.classList.toggle('active', this.emergencyStopActive);
+      document.getElementById('estop-label')!.textContent = this.emergencyStopActive ? 'BRAKE ACTIVE (LIFT)' : 'E-STOP BRAKE';
+    }
+
+    // Handle Checkpoint Approval Prompt Modal
+    if (event.type === 'checkpoint.request') {
+      this.showCheckpointModal(event);
     }
 
     // Update stats
@@ -304,8 +394,30 @@ class App {
       });
     }
 
-    // Add to live feed DOM
     this.appendFeedItem(event);
+  }
+
+  private showCheckpointModal(event: VisualizerEvent): void {
+    const modal = document.getElementById('checkpoint-modal')!;
+    const descEl = document.getElementById('cp-modal-desc')!;
+    const btnApprove = document.getElementById('btn-cp-approve')!;
+    const btnReject = document.getElementById('btn-cp-reject')!;
+
+    const cpId = event.payload?.checkpointId || event.id;
+    const actionDesc = event.summary || event.title;
+
+    descEl.textContent = actionDesc;
+    modal.style.display = 'flex';
+
+    btnApprove.onclick = async () => {
+      await this.client.respondCheckpoint(cpId, 'APPROVED', 'Developer manually approved via UI checkpoint');
+      modal.style.display = 'none';
+    };
+
+    btnReject.onclick = async () => {
+      await this.client.respondCheckpoint(cpId, 'REJECTED', 'Developer rejected operation');
+      modal.style.display = 'none';
+    };
   }
 
   private updateHUD(): void {
@@ -327,6 +439,9 @@ class App {
     else if (event.type.startsWith('mcp.')) badgeClass = 'badge-mcp';
     else if (event.type.startsWith('command.')) badgeClass = 'badge-command';
     else if (event.type.startsWith('session.')) badgeClass = 'badge-session';
+    else if (event.type === 'checkpoint.request' || event.type === 'checkpoint.decision') badgeClass = 'badge-checkpoint';
+    else if (event.type === 'intervention.prompt') badgeClass = 'badge-intercom';
+    else if (event.type === 'emergency.stop') badgeClass = 'badge-estop';
 
     const timeStr = new Date(event.timestamp).toLocaleTimeString([], { hour12: false });
 
@@ -345,7 +460,6 @@ class App {
 
     feed.prepend(item);
 
-    // Keep DOM trimmed
     while (feed.children.length > 50) {
       feed.removeChild(feed.lastChild!);
     }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/zhenya/copilot-visualizer/pkg/autodiscover"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
+	"github.com/zhenya/copilot-visualizer/pkg/intervention"
 	"github.com/zhenya/copilot-visualizer/pkg/mcpproxy"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
@@ -32,6 +33,7 @@ func main() {
 
 	eventHub := hub.NewHub(500)
 	sim := simulator.New(eventHub)
+	intervMgr := intervention.NewManager(eventHub)
 
 	// Initialize Auto-Discovery Engine
 	engine := autodiscover.NewEngine(eventHub, nil)
@@ -78,7 +80,7 @@ func main() {
 		staticFS = embeddedFS
 	}
 
-	srvHandler := server.NewServer(eventHub, sim, engine, staticFS)
+	srvHandler := server.NewServer(eventHub, sim, engine, intervMgr, staticFS)
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
 		Handler:      srvHandler,

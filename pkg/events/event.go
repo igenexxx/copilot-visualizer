@@ -23,8 +23,12 @@ const (
 	TypeCommandOutput    Type = "command.output"
 	TypeMCPCall          Type = "mcp.call"
 	TypeMCPResponse      Type = "mcp.response"
-	TypeSubagentDelegate Type = "subagent.delegate"
-	TypeSubagentReturn   Type = "subagent.return"
+	TypeSubagentDelegate   Type = "subagent.delegate"
+	TypeSubagentReturn     Type = "subagent.return"
+	TypeInterventionPrompt Type = "intervention.prompt"
+	TypeCheckpointRequest  Type = "checkpoint.request"
+	TypeCheckpointDecision Type = "checkpoint.decision"
+	TypeEmergencyStop      Type = "emergency.stop"
 )
 
 // AgentRole defines the specialization of the agent in the workshop.
@@ -42,13 +46,14 @@ const (
 type StationType string
 
 const (
-	StationForemanDesk StationType = "foreman_desk"  // Central blueprint & planning hub
-	StationFilingVault StationType = "filing_vault"  // File reads & codebase navigation
-	StationSearchRadar StationType = "search_radar"  // Grep & symbol search
-	StationCNCLathe    StationType = "cnc_lathe"     // File edits, patch writes & code forging
-	StationTestFurnace StationType = "test_furnace"  // Shell execution, test runs & builds
-	StationPhoneBooth  StationType = "phone_booth"   // MCP calls & remote servers
-	StationConveyor    StationType = "conveyor"      // Output delivery & artifact transit
+	StationForemanDesk  StationType = "foreman_desk"  // Central blueprint & planning hub
+	StationFilingVault  StationType = "filing_vault"  // File reads & codebase navigation
+	StationSearchRadar  StationType = "search_radar"  // Grep & symbol search
+	StationCNCLathe     StationType = "cnc_lathe"     // File edits, patch writes & code forging
+	StationTestFurnace  StationType = "test_furnace"  // Shell execution, test runs & builds
+	StationPhoneBooth   StationType = "phone_booth"   // MCP calls & remote servers
+	StationConveyor     StationType = "conveyor"      // Output delivery & artifact transit
+	StationSecurityGate StationType = "security_gate" // Safety barrier & checkpoint approval
 )
 
 // Event is the canonical payload sent across the WebSocket event stream.

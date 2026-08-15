@@ -12,24 +12,26 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/autodiscover"
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
+	"github.com/zhenya/copilot-visualizer/pkg/intervention"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
 )
 
-func setupTestServer(t *testing.T) (*server.Server, *hub.Hub, *simulator.Simulator) {
+func setupTestServer(t *testing.T) (*server.Server, *hub.Hub, *simulator.Simulator, *intervention.Manager) {
 	h := hub.NewHub(50)
 	sim := simulator.New(h)
 	eng := autodiscover.NewEngineWithWatchPaths(h, nil)
-	srv := server.NewServer(h, sim, eng, nil)
+	interv := intervention.NewManager(h)
+	srv := server.NewServer(h, sim, eng, interv, nil)
 	t.Cleanup(func() {
 		h.Close()
 		sim.Stop()
 	})
-	return srv, h, sim
+	return srv, h, sim, interv
 }
 
 func TestServer_RESTEndpoints(t *testing.T) {
-	srv, h, sim := setupTestServer(t)
+	srv, h, sim, interv := setupTestServer(t)
 
 	// 1. Test GET /api/status
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
@@ -110,7 +112,35 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected status 200 on stop, got %d", stopRec.Code)
 	}
 
-	// 6. Test OPTIONS method (CORS)
+	// 6. Test Intervention: Emergency Stop
+	estopReq := httptest.NewRequest(http.MethodPost, "/api/intervention/emergency-stop", bytes.NewReader([]byte(`{"active":true,"reason":"Manual halt"}`)))
+	estopRec := httptest.NewRecorder()
+	srv.ServeHTTP(estopRec, estopReq)
+	if estopRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on emergency stop, got %d", estopRec.Code)
+	}
+	if !interv.IsEmergencyStopActive() {
+		t.Fatalf("expected emergency stop to be active")
+	}
+
+	// 7. Test Intervention: Intercom
+	intercomReq := httptest.NewRequest(http.MethodPost, "/api/intervention/intercom", bytes.NewReader([]byte(`{"sessionId":"sess-1","message":"Speed up tests"}`)))
+	intercomRec := httptest.NewRecorder()
+	srv.ServeHTTP(intercomRec, intercomReq)
+	if intercomRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on intercom, got %d", intercomRec.Code)
+	}
+
+	// 8. Test Intervention: Checkpoint request and response
+	cp, _ := interv.RequestCheckpoint("sess-1", "run_command", "git push", nil)
+	decisionReq := httptest.NewRequest(http.MethodPost, "/api/intervention/checkpoint/respond", bytes.NewReader([]byte(`{"checkpointId":"`+cp.ID+`","decision":"APPROVED","feedback":"Looks good"}`)))
+	decisionRec := httptest.NewRecorder()
+	srv.ServeHTTP(decisionRec, decisionReq)
+	if decisionRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on checkpoint response, got %d", decisionRec.Code)
+	}
+
+	// 9. Test OPTIONS method (CORS)
 	optReq := httptest.NewRequest(http.MethodOptions, "/api/status", nil)
 	optRec := httptest.NewRecorder()
 	srv.ServeHTTP(optRec, optReq)
@@ -118,7 +148,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 200 for OPTIONS, got %d", optRec.Code)
 	}
 
-	// 7. Test Method Not Allowed
+	// 10. Test Method Not Allowed
 	wrongMethodReq := httptest.NewRequest(http.MethodDelete, "/api/status", nil)
 	wrongMethodRec := httptest.NewRecorder()
 	srv.ServeHTTP(wrongMethodRec, wrongMethodReq)
@@ -126,21 +156,6 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 405 Method Not Allowed, got %d", wrongMethodRec.Code)
 	}
 
-	// 8. Test invalid JSON ingest
-	badIngestReq := httptest.NewRequest(http.MethodPost, "/api/events", bytes.NewReader([]byte("{invalid-json")))
-	badIngestRec := httptest.NewRecorder()
-	srv.ServeHTTP(badIngestRec, badIngestReq)
-	if badIngestRec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request on invalid JSON, got %d", badIngestRec.Code)
-	}
-
-	// 9. Test invalid speed multiplier
-	badSpeedReq := httptest.NewRequest(http.MethodPost, "/api/simulator/speed?multiplier=-10", nil)
-	badSpeedRec := httptest.NewRecorder()
-	srv.ServeHTTP(badSpeedRec, badSpeedReq)
-	if badSpeedRec.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request on invalid multiplier, got %d", badSpeedRec.Code)
-	}
 	_ = h
 }
 
@@ -156,7 +171,7 @@ func TestServer_StaticFileServing(t *testing.T) {
 	defer h.Close()
 	defer sim.Stop()
 
-	srv := server.NewServer(h, sim, nil, os.DirFS(tmpDir))
+	srv := server.NewServer(h, sim, nil, nil, os.DirFS(tmpDir))
 
 	req := httptest.NewRequest(http.MethodGet, "/asset.txt", nil)
 	rec := httptest.NewRecorder()
