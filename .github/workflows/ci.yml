@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches-ignore:
+      - main  # main is handled by release.yml
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: '1.26.1'
+  NODE_VERSION: '22'
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        # macOS + Windows intentionally excluded from PR CI to save minutes
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci --prefix web
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Go build check (all platforms, CGO-free)
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 \
+              go build -o /dev/null ./cmd/server
+            echo "✓ cmd/server: ${target}"
+          done
+
+      - name: Go tests (race + cover)
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Frontend tests (Vitest)
+        run: npm --prefix web test
+
+      - name: Frontend type-check
+        run: npm --prefix web run build
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          fail_ci_if_error: false

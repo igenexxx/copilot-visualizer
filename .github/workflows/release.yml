@@ -1,0 +1,465 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'docs/**'
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: '1.26.1'
+  NODE_VERSION: '22'
+
+# ─────────────────────────────────────────────────────────────────
+# Jobs overview:
+#   1. test          — Go + frontend tests (matrix: ubuntu)
+#   2. version       — derive semver tag from commit
+#   3. build-servers — headless CGO-free binaries (matrix: all platforms, single ubuntu runner)
+#   4. build-desktop-linux   — Wails GUI, ubuntu runner
+#   5. build-desktop-darwin  — Wails GUI, macos-latest runner (arm64 + amd64 + universal)
+#   6. build-desktop-windows — Wails GUI, windows-latest runner
+#   7. release       — collect all artifacts, create GitHub Release
+# ─────────────────────────────────────────────────────────────────
+
+jobs:
+
+  # ── 1. TEST ──────────────────────────────────────────────────────
+  test:
+    name: Tests (Go + Frontend)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend deps
+        run: npm ci --prefix web
+
+      - name: Go tests (race + cover)
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Frontend tests (Vitest)
+        run: npm --prefix web test
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+          fail_ci_if_error: false
+
+  # ── 2. VERSION ───────────────────────────────────────────────────
+  version:
+    name: Derive version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate version tag
+        id: tag
+        run: |
+          # Use existing git tag if HEAD is tagged, otherwise create calver+sha
+          EXISTING=$(git tag --points-at HEAD | grep -E '^v[0-9]' | head -1)
+          if [ -n "$EXISTING" ]; then
+            TAG=$EXISTING
+          else
+            DATE=$(date -u +"%Y.%m.%d")
+            SHA=$(git rev-parse --short HEAD)
+            TAG="v${DATE}-${SHA}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Releasing as ${TAG}"
+
+  # ── 3. SERVER BINARIES (CGO-free, all platforms from one runner) ─
+  build-servers:
+    name: Server binaries (all platforms)
+    runs-on: ubuntu-latest
+    needs: [test, version]
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ""
+            archive_ext: tar.gz
+          - goos: linux
+            goarch: arm64
+            ext: ""
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+            archive_ext: tar.gz
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+            archive_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build frontend
+        run: npm ci --prefix web && npm --prefix web run build
+
+      - name: Build server binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          ARTIFACT=copilot-visualizer-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          go build \
+            -ldflags="-s -w -X main.Version=${{ needs.version.outputs.version }} -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "dist/${ARTIFACT}" \
+            ./cmd/server
+          echo "Built: dist/${ARTIFACT}"
+
+      - name: Archive (tar.gz)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          ARTIFACT=copilot-visualizer-server-${{ matrix.goos }}-${{ matrix.goarch }}
+          cd dist && tar -czf "${ARTIFACT}.tar.gz" "${ARTIFACT}"
+
+      - name: Archive (zip)
+        if: matrix.archive_ext == 'zip'
+        run: |
+          ARTIFACT=copilot-visualizer-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
+          cd dist && zip "${ARTIFACT%.exe}.zip" "${ARTIFACT}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/copilot-visualizer-server-${{ matrix.goos }}-${{ matrix.goarch }}.*
+          retention-days: 1
+
+  # ── 4. DESKTOP — LINUX ───────────────────────────────────────────
+  build-desktop-linux:
+    name: Desktop (Linux amd64)
+    runs-on: ubuntu-latest
+    needs: [test, version]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install GTK + WebKit (Ubuntu 24.04 uses 4.1)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            pkg-config \
+            build-essential
+
+      - name: Build Wails desktop (Linux amd64)
+        run: |
+          mkdir -p dist
+          wails build \
+            -tags webkit2_41 \
+            -platform linux/amd64 \
+            -ldflags "-s -w -X main.Version=${{ needs.version.outputs.version }}" \
+            -o copilot-visualizer-desktop-linux-amd64
+          mv build/bin/copilot-visualizer-desktop-linux-amd64 dist/
+          cd dist && tar -czf copilot-visualizer-desktop-linux-amd64.tar.gz \
+            copilot-visualizer-desktop-linux-amd64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux-amd64
+          path: dist/copilot-visualizer-desktop-linux-amd64.*
+          retention-days: 1
+
+  # ── 5. DESKTOP — macOS ───────────────────────────────────────────
+  build-desktop-darwin:
+    name: Desktop (macOS ${{ matrix.goarch }})
+    runs-on: macos-latest
+    needs: [test, version]
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build Wails desktop (macOS ${{ matrix.goarch }})
+        run: |
+          mkdir -p dist
+          wails build \
+            -platform darwin/${{ matrix.goarch }} \
+            -ldflags "-s -w -X main.Version=${{ needs.version.outputs.version }}" \
+            -o copilot-visualizer-desktop-darwin-${{ matrix.goarch }}
+          # Wails may produce .app bundle on macOS
+          if [ -d "build/bin/copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.app" ]; then
+            cd build/bin
+            zip -r ../../dist/copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.zip \
+              copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.app
+          else
+            mv build/bin/copilot-visualizer-desktop-darwin-${{ matrix.goarch }} dist/
+            cd dist && tar -czf \
+              copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.tar.gz \
+              copilot-visualizer-desktop-darwin-${{ matrix.goarch }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-darwin-${{ matrix.goarch }}
+          path: dist/copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.*
+          retention-days: 1
+
+  # macOS universal fat binary from amd64 + arm64
+  build-desktop-darwin-universal:
+    name: Desktop (macOS universal)
+    runs-on: macos-latest
+    needs: [build-desktop-darwin]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-darwin-amd64
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-darwin-arm64
+          path: dist/
+
+      - name: Create universal binary with lipo
+        run: |
+          # Extract if tar.gz
+          cd dist
+          for f in *.tar.gz; do tar -xzf "$f" 2>/dev/null || true; done
+          for f in *.zip; do unzip -o "$f" 2>/dev/null || true; done
+
+          AMD64=$(find . -name "*darwin-amd64" -not -name "*.tar.gz" -not -name "*.zip" | head -1)
+          ARM64=$(find . -name "*darwin-arm64" -not -name "*.tar.gz" -not -name "*.zip" | head -1)
+
+          if [ -n "$AMD64" ] && [ -n "$ARM64" ]; then
+            lipo -create -output copilot-visualizer-desktop-darwin-universal "$AMD64" "$ARM64"
+            tar -czf copilot-visualizer-desktop-darwin-universal.tar.gz \
+              copilot-visualizer-desktop-darwin-universal
+            echo "✓ Universal binary created"
+          else
+            echo "Binaries not found for lipo, skipping universal"
+          fi
+
+      - name: Upload universal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-darwin-universal
+          path: dist/copilot-visualizer-desktop-darwin-universal.*
+          retention-days: 1
+
+  # ── 6. DESKTOP — WINDOWS ─────────────────────────────────────────
+  build-desktop-windows:
+    name: Desktop (Windows amd64)
+    runs-on: windows-latest
+    needs: [test, version]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install NSIS (installer builder)
+        run: choco install nsis --no-progress -y
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build Wails desktop (Windows amd64)
+        shell: bash
+        run: |
+          mkdir -p dist
+          wails build \
+            -platform windows/amd64 \
+            -nsis \
+            -ldflags "-s -w -X main.Version=${{ needs.version.outputs.version }}" \
+            -o copilot-visualizer-desktop-windows-amd64.exe
+          mv build/bin/copilot-visualizer-desktop-windows-amd64.exe dist/ 2>/dev/null || true
+          mv build/bin/copilot-visualizer-desktop-windows-amd64-installer.exe dist/ 2>/dev/null || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-amd64
+          path: dist/copilot-visualizer-desktop-windows-amd64*.exe
+          retention-days: 1
+
+  # ── 7. RELEASE ───────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs:
+      - version
+      - build-servers
+      - build-desktop-linux
+      - build-desktop-darwin
+      - build-desktop-darwin-universal
+      - build-desktop-windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+          merge-multiple: true
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd release-artifacts
+          sha256sum * > checksums.sha256
+          cat checksums.sha256
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION=${{ needs.version.outputs.version }}
+          TAG=${{ needs.version.outputs.tag }}
+          SHA=$(git rev-parse --short HEAD)
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s" HEAD)
+
+          cat > release_notes.md << EOF
+          ## Copilot Visualizer ${TAG}
+
+          > Real-time multi-agent isometric observability HUD
+
+          **Commit:** \`${SHA}\` — ${COMMIT_MSG}
+
+          ---
+
+          ### 📦 Downloads
+
+          #### 🖥️ Desktop App (Wails — native window, no browser required)
+          | Platform | Architecture | File |
+          |---|---|---|
+          | Linux | x86_64 | \`copilot-visualizer-desktop-linux-amd64.tar.gz\` |
+          | macOS | Apple Silicon (M1/M2/M3) | \`copilot-visualizer-desktop-darwin-arm64.*\` |
+          | macOS | Intel | \`copilot-visualizer-desktop-darwin-amd64.*\` |
+          | macOS | Universal (fat binary) | \`copilot-visualizer-desktop-darwin-universal.tar.gz\` |
+          | Windows | x86_64 | \`copilot-visualizer-desktop-windows-amd64.exe\` |
+          | Windows | NSIS Installer | \`copilot-visualizer-desktop-windows-amd64-installer.exe\` |
+
+          #### 🌐 Headless Web Server (CGO-free, no GUI — browser at localhost:9876)
+          | Platform | Architecture | File |
+          |---|---|---|
+          | Linux | x86_64 | \`copilot-visualizer-server-linux-amd64.tar.gz\` |
+          | Linux | ARM64 | \`copilot-visualizer-server-linux-arm64.tar.gz\` |
+          | macOS | Intel | \`copilot-visualizer-server-darwin-amd64.tar.gz\` |
+          | macOS | Apple Silicon | \`copilot-visualizer-server-darwin-arm64.tar.gz\` |
+          | Windows | x86_64 | \`copilot-visualizer-server-windows-amd64.zip\` |
+
+          ---
+
+          ### 🚀 Quick Start
+
+          **Desktop:**
+          \`\`\`bash
+          # Linux
+          tar -xzf copilot-visualizer-desktop-linux-amd64.tar.gz
+          ./copilot-visualizer-desktop-linux-amd64 --demo
+
+          # macOS (universal)
+          tar -xzf copilot-visualizer-desktop-darwin-universal.tar.gz
+          ./copilot-visualizer-desktop-darwin-universal --demo
+          \`\`\`
+
+          **Web Server:**
+          \`\`\`bash
+          tar -xzf copilot-visualizer-server-linux-amd64.tar.gz
+          ./copilot-visualizer-server-linux-amd64 -port=9876 -demo=true
+          # Open http://localhost:9876
+          \`\`\`
+
+          **Verify checksums:**
+          \`\`\`bash
+          sha256sum -c checksums.sha256
+          \`\`\`
+          EOF
+
+          echo "notes_file=release_notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: "Copilot Visualizer ${{ needs.version.outputs.tag }}"
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(needs.version.outputs.tag, 'dev') || contains(needs.version.outputs.tag, 'rc') }}
+          files: |
+            release-artifacts/**/*
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

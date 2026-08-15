@@ -1,0 +1,20 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "copilot-visualizer",
+  "outputfilename": "copilot-visualizer",
+  "frontend:dir": "web",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Zhenya"
+  },
+  "info": {
+    "companyName": "Personal",
+    "productName": "Copilot Visualizer",
+    "productVersion": "1.0.0",
+    "copyright": "Copyright 2026",
+    "comments": "Real-time Multi-Agent Isometric Visualizer & Observability HUD"
+  }
+}

@@ -1,7 +1,16 @@
 # Binaries and build outputs
 /copilot-visualizer
+/copilot-visualizer-desktop
 /bin/
+build/bin/
+dist/
 web/dist/
+
+# Wails auto-generated JS bindings (re-generated on every build)
+web/wailsjs/
+
+# Wails internal cache
+web/package.json.md5
 
 # Test coverage
 coverage.out

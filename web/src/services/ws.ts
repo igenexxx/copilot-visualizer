@@ -18,6 +18,23 @@ export class VisualizerClient {
   }
 
   public connect(): void {
+    // Check if running inside Wails Desktop native shell
+    const wailsRuntime = (window as any).runtime;
+    if (wailsRuntime && typeof wailsRuntime.EventsOn === 'function') {
+      this.isConnected = true;
+      this.notifyStatus(true);
+
+      // Subscribe to real-time events streamed from Go backend via Wails IPC
+      wailsRuntime.EventsOn('visualizer:event', (event: VisualizerEvent) => {
+        this.notifyEvent(event);
+      });
+
+      wailsRuntime.EventsOn('visualizer:initial_state', (_state: any) => {
+        this.notifyStatus(true);
+      });
+      return;
+    }
+
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -89,6 +106,16 @@ export class VisualizerClient {
   }
 
   public async fetchHistory(): Promise<VisualizerEvent[]> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.GetSessionState === 'function') {
+      try {
+        const state = await wailsApp.GetSessionState('desktop');
+        return state?.events || [];
+      } catch (err) {
+        console.warn('Wails GetSessionState error:', err);
+      }
+    }
+
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {
       const res = await fetch(`${host}/api/history`);
@@ -102,6 +129,16 @@ export class VisualizerClient {
   }
 
   public async fetchRepoTree(): Promise<any[]> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.ScanRepoTree === 'function') {
+      try {
+        const tree = await wailsApp.ScanRepoTree('');
+        return tree?.children || [];
+      } catch (err) {
+        console.warn('Wails ScanRepoTree error:', err);
+      }
+    }
+
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {
       const res = await fetch(`${host}/api/repo-tree`);
@@ -156,6 +193,16 @@ export class VisualizerClient {
   }
 
   public async toggleEmergencyStop(active: boolean, reason?: string): Promise<void> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.TriggerEmergencyStop === 'function') {
+      try {
+        await wailsApp.TriggerEmergencyStop(reason || (active ? 'User engaged E-Stop' : 'Resumed'));
+        return;
+      } catch (err) {
+        console.warn('Wails TriggerEmergencyStop error:', err);
+      }
+    }
+
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     await fetch(`${host}/api/intervention/emergency-stop`, {
       method: 'POST',
@@ -165,6 +212,16 @@ export class VisualizerClient {
   }
 
   public async sendIntercom(sessionId: string, message: string): Promise<void> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.SendIntercomPrompt === 'function') {
+      try {
+        await wailsApp.SendIntercomPrompt(message);
+        return;
+      } catch (err) {
+        console.warn('Wails SendIntercomPrompt error:', err);
+      }
+    }
+
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     await fetch(`${host}/api/intervention/intercom`, {
       method: 'POST',
@@ -196,6 +253,15 @@ export class VisualizerClient {
   }
 
   public async fetchTapeList(): Promise<any[]> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.ListTapes === 'function') {
+      try {
+        return await wailsApp.ListTapes();
+      } catch (err) {
+        console.warn('Wails ListTapes error:', err);
+      }
+    }
+
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {
       const res = await fetch(`${host}/api/tape/list`);
@@ -207,6 +273,15 @@ export class VisualizerClient {
   }
 
   public async loadTape(tapeId: string): Promise<any | null> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.LoadTape === 'function') {
+      try {
+        return await wailsApp.LoadTape(tapeId);
+      } catch (err) {
+        console.warn('Wails LoadTape error:', err);
+      }
+    }
+
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {
       const res = await fetch(`${host}/api/tape/load?id=${encodeURIComponent(tapeId)}`);
@@ -218,6 +293,16 @@ export class VisualizerClient {
   }
 
   public async saveTape(): Promise<any | null> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.SaveTape === 'function') {
+      try {
+        const id = await wailsApp.SaveTape('');
+        return { ok: true, id };
+      } catch (err) {
+        console.warn('Wails SaveTape error:', err);
+      }
+    }
+
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {
       const res = await fetch(`${host}/api/tape/save`, { method: 'POST' });

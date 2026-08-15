@@ -1,0 +1,289 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+# Copilot Visualizer — Cross-platform build system
+# Usage: task -f Taskfile.build.yml <task>
+# Requires: task, wails (go install github.com/wailsapp/wails/v2/cmd/wails@latest), npm, node
+
+version: '3'
+
+vars:
+  APP_NAME: copilot-visualizer
+  APP_VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  BUILD_TIME:
+    sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
+  LDFLAGS: -s -w -X main.Version={{.APP_VERSION}} -X main.BuildTime={{.BUILD_TIME}}
+  WAILS_FLAGS: -tags webkit2_41
+  OUT_DIR: dist
+
+# ─────────────────────────────────────────────────────────────────
+#  UTILITIES
+# ─────────────────────────────────────────────────────────────────
+tasks:
+
+  default:
+    desc: List all build tasks
+    cmds:
+      - task --taskfile Taskfile.build.yml --list
+
+  clean:
+    desc: Remove all build artifacts
+    cmds:
+      - rm -rf {{.OUT_DIR}} build/bin/ web/dist/
+      - echo "✓ Cleaned {{.OUT_DIR}}/ and build/bin/"
+
+  prepare:
+    desc: Build frontend assets (shared by all targets)
+    dir: web
+    cmds:
+      - npm ci --prefer-offline
+      - npm run build
+    sources:
+      - src/**/*
+      - index.html
+      - package.json
+      - tsconfig.json
+      - vite.config.ts
+    generates:
+      - dist/index.html
+
+  ensure-out:
+    internal: true
+    silent: true
+    cmds:
+      - mkdir -p {{.OUT_DIR}}
+
+  print-version:
+    desc: Print current version
+    silent: true
+    cmds:
+      - echo "Version {{.APP_VERSION}} built at {{.BUILD_TIME}}"
+
+# ─────────────────────────────────────────────────────────────────
+#  WEB SERVER BINARY (headless, no GUI — via cmd/server)
+# ─────────────────────────────────────────────────────────────────
+
+  server:linux-amd64:
+    desc: Build web-server binary → Linux x86_64
+    deps: [prepare, ensure-out]
+    cmds:
+      - |
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+        go build -ldflags="{{.LDFLAGS}}" \
+          -o {{.OUT_DIR}}/{{.APP_NAME}}-server-linux-amd64 \
+          ./cmd/server
+      - echo "✓ server-linux-amd64"
+
+  server:linux-arm64:
+    desc: Build web-server binary → Linux ARM64 (Raspberry Pi / AWS Graviton)
+    deps: [prepare, ensure-out]
+    cmds:
+      - |
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+        go build -ldflags="{{.LDFLAGS}}" \
+          -o {{.OUT_DIR}}/{{.APP_NAME}}-server-linux-arm64 \
+          ./cmd/server
+      - echo "✓ server-linux-arm64"
+
+  server:windows-amd64:
+    desc: Build web-server binary → Windows x86_64 (.exe)
+    deps: [prepare, ensure-out]
+    cmds:
+      - |
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+        go build -ldflags="{{.LDFLAGS}}" \
+          -o {{.OUT_DIR}}/{{.APP_NAME}}-server-windows-amd64.exe \
+          ./cmd/server
+      - echo "✓ server-windows-amd64.exe"
+
+  server:darwin-amd64:
+    desc: Build web-server binary → macOS Intel x86_64
+    deps: [prepare, ensure-out]
+    cmds:
+      - |
+        GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
+        go build -ldflags="{{.LDFLAGS}}" \
+          -o {{.OUT_DIR}}/{{.APP_NAME}}-server-darwin-amd64 \
+          ./cmd/server
+      - echo "✓ server-darwin-amd64"
+
+  server:darwin-arm64:
+    desc: Build web-server binary → macOS Apple Silicon (M1/M2/M3)
+    deps: [prepare, ensure-out]
+    cmds:
+      - |
+        GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
+        go build -ldflags="{{.LDFLAGS}}" \
+          -o {{.OUT_DIR}}/{{.APP_NAME}}-server-darwin-arm64 \
+          ./cmd/server
+      - echo "✓ server-darwin-arm64"
+
+  server:all:
+    desc: Build all headless server binaries for all platforms
+    deps:
+      - server:linux-amd64
+      - server:linux-arm64
+      - server:windows-amd64
+      - server:darwin-amd64
+      - server:darwin-arm64
+    cmds:
+      - echo "✓ All server binaries in {{.OUT_DIR}}/"
+
+# ─────────────────────────────────────────────────────────────────
+#  DESKTOP GUI (Wails — requires CGO + native WebView)
+#  Cross-compilation note: Wails requires native host SDK per platform.
+#  Linux→Linux: works with CGO + webkit2gtk
+#  macOS→macOS: works with CGO + WebKit (Xcode SDK)
+#  Windows→Windows: works with CGO + WebView2 SDK
+#  Cross-compiling Wails across OS requires dedicated CI runners per platform.
+# ─────────────────────────────────────────────────────────────────
+
+  desktop:linux:
+    desc: Build Wails desktop app → Linux (current host, requires libwebkit2gtk-4.1-dev)
+    deps: [ensure-out]
+    cmds:
+      - |
+        wails build \
+          {{.WAILS_FLAGS}} \
+          -platform linux/amd64 \
+          -ldflags "{{.LDFLAGS}}" \
+          -o {{.APP_NAME}}-desktop-linux-amd64
+      - mv build/bin/{{.APP_NAME}}-desktop-linux-amd64 {{.OUT_DIR}}/
+      - echo "✓ desktop-linux-amd64"
+
+  desktop:linux-arm64:
+    desc: Build Wails desktop app → Linux ARM64 (cross, requires arm64 sysroot)
+    deps: [ensure-out]
+    cmds:
+      - |
+        wails build \
+          {{.WAILS_FLAGS}} \
+          -platform linux/arm64 \
+          -ldflags "{{.LDFLAGS}}" \
+          -o {{.APP_NAME}}-desktop-linux-arm64
+      - mv build/bin/{{.APP_NAME}}-desktop-linux-arm64 {{.OUT_DIR}}/ 2>/dev/null || true
+      - echo "✓ desktop-linux-arm64"
+
+  desktop:darwin-amd64:
+    desc: Build Wails desktop app → macOS Intel (must run on macOS host)
+    deps: [ensure-out]
+    cmds:
+      - |
+        wails build \
+          -platform darwin/amd64 \
+          -ldflags "{{.LDFLAGS}}" \
+          -o {{.APP_NAME}}-desktop-darwin-amd64
+      - mv build/bin/{{.APP_NAME}}-desktop-darwin-amd64.app {{.OUT_DIR}}/ 2>/dev/null || \
+        mv build/bin/{{.APP_NAME}}-desktop-darwin-amd64 {{.OUT_DIR}}/ 2>/dev/null || true
+      - echo "✓ desktop-darwin-amd64"
+
+  desktop:darwin-arm64:
+    desc: Build Wails desktop app → macOS Apple Silicon (must run on macOS host)
+    deps: [ensure-out]
+    cmds:
+      - |
+        wails build \
+          -platform darwin/arm64 \
+          -ldflags "{{.LDFLAGS}}" \
+          -o {{.APP_NAME}}-desktop-darwin-arm64
+      - mv build/bin/{{.APP_NAME}}-desktop-darwin-arm64.app {{.OUT_DIR}}/ 2>/dev/null || \
+        mv build/bin/{{.APP_NAME}}-desktop-darwin-arm64 {{.OUT_DIR}}/ 2>/dev/null || true
+      - echo "✓ desktop-darwin-arm64"
+
+  desktop:darwin-universal:
+    desc: Build universal macOS binary (Intel + Apple Silicon fat binary)
+    deps: [desktop:darwin-amd64, desktop:darwin-arm64]
+    cmds:
+      - |
+        lipo -create -output {{.OUT_DIR}}/{{.APP_NAME}}-desktop-darwin-universal \
+          {{.OUT_DIR}}/{{.APP_NAME}}-desktop-darwin-amd64 \
+          {{.OUT_DIR}}/{{.APP_NAME}}-desktop-darwin-arm64
+      - echo "✓ desktop-darwin-universal (fat binary)"
+
+  desktop:windows:
+    desc: Build Wails desktop app → Windows amd64 (must run on Windows host with WebView2 SDK)
+    deps: [ensure-out]
+    cmds:
+      - |
+        wails build \
+          -platform windows/amd64 \
+          -nsis \
+          -ldflags "{{.LDFLAGS}}" \
+          -o {{.APP_NAME}}-desktop-windows-amd64.exe
+      - mv build/bin/{{.APP_NAME}}-desktop-windows-amd64.exe {{.OUT_DIR}}/ 2>/dev/null || true
+      - mv build/bin/{{.APP_NAME}}-desktop-windows-amd64-installer.exe {{.OUT_DIR}}/ 2>/dev/null || true
+      - echo "✓ desktop-windows-amd64.exe"
+
+# ─────────────────────────────────────────────────────────────────
+#  CHECKSUMS & ARCHIVES
+# ─────────────────────────────────────────────────────────────────
+
+  checksums:
+    desc: Generate SHA-256 checksums for all release artifacts
+    dir: '{{.OUT_DIR}}'
+    cmds:
+      - sha256sum * > checksums.sha256
+      - echo "✓ checksums.sha256 generated"
+
+  archive:linux:
+    desc: Package Linux server binary as .tar.gz
+    dir: '{{.OUT_DIR}}'
+    cmds:
+      - tar -czf {{.APP_NAME}}-server-linux-amd64.tar.gz {{.APP_NAME}}-server-linux-amd64
+      - tar -czf {{.APP_NAME}}-server-linux-arm64.tar.gz {{.APP_NAME}}-server-linux-arm64
+      - echo "✓ Linux archives created"
+
+  archive:darwin:
+    desc: Package macOS server binaries as .tar.gz
+    dir: '{{.OUT_DIR}}'
+    cmds:
+      - tar -czf {{.APP_NAME}}-server-darwin-amd64.tar.gz {{.APP_NAME}}-server-darwin-amd64
+      - tar -czf {{.APP_NAME}}-server-darwin-arm64.tar.gz {{.APP_NAME}}-server-darwin-arm64
+      - echo "✓ macOS archives created"
+
+  archive:windows:
+    desc: Package Windows server binary as .zip
+    dir: '{{.OUT_DIR}}'
+    cmds:
+      - zip {{.APP_NAME}}-server-windows-amd64.zip {{.APP_NAME}}-server-windows-amd64.exe
+      - echo "✓ Windows archive created"
+
+# ─────────────────────────────────────────────────────────────────
+#  COMPOSITE TARGETS
+# ─────────────────────────────────────────────────────────────────
+
+  release:servers:
+    desc: Build + archive all headless server binaries (CI-friendly, no CGO)
+    cmds:
+      - task: server:all
+      - task: archive:linux
+      - task: archive:darwin
+      - task: archive:windows
+      - task: checksums
+      - echo "✓ Release server artifacts ready in {{.OUT_DIR}}/"
+
+  release:desktop:linux:
+    desc: Build Linux Wails desktop + archive (run on Linux CI runner)
+    cmds:
+      - task: desktop:linux
+      - |
+        cd {{.OUT_DIR}} && \
+        tar -czf {{.APP_NAME}}-desktop-linux-amd64.tar.gz {{.APP_NAME}}-desktop-linux-amd64
+      - echo "✓ Linux desktop release ready"
+
+  release:desktop:darwin:
+    desc: Build macOS Wails desktop (run on macOS CI runner)
+    cmds:
+      - task: desktop:darwin-arm64
+      - task: desktop:darwin-amd64
+      - task: desktop:darwin-universal
+      - |
+        cd {{.OUT_DIR}} && \
+        zip -r {{.APP_NAME}}-desktop-darwin-arm64.zip {{.APP_NAME}}-desktop-darwin-arm64* && \
+        zip -r {{.APP_NAME}}-desktop-darwin-amd64.zip {{.APP_NAME}}-desktop-darwin-amd64*
+      - echo "✓ macOS desktop release ready"
+
+  release:desktop:windows:
+    desc: Build Windows Wails desktop (run on Windows CI runner)
+    cmds:
+      - task: desktop:windows
+      - echo "✓ Windows desktop release ready"
