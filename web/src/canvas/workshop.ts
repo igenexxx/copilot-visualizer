@@ -1167,13 +1167,65 @@ export class WorkshopCanvas {
 
     switch (st.type) {
       case 'foreman_desk': {
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(x - 12 * z, y - 16 * z, 24 * z, 12 * z);
-        ctx.fillStyle = '#0284c7';
-        ctx.fillRect(x - 8 * z, y - 14 * z, 16 * z, 8 * z);
-        ctx.strokeStyle = '#38bdf8';
+        // 3D Isometric Command Console & Planning Terminal
+        const isPulse = st.pulseTime > 0.05;
+
+        // Base console pedestal
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#334155';
         ctx.lineWidth = 1 * z;
-        ctx.strokeRect(x - 6 * z, y - 12 * z, 12 * z, 5 * z);
+        ctx.beginPath();
+        ctx.ellipse(x, y + 4 * z, 20 * z, 10 * z, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // 3D Console Desk Structure
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x - 14 * z, y - 12 * z, 28 * z, 12 * z);
+        ctx.strokeStyle = isPulse ? '#38bdf8' : '#475569';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 14 * z, y - 12 * z, 28 * z, 12 * z);
+
+        // Desk Surface & Neon Trim
+        ctx.fillStyle = '#0284c7';
+        ctx.fillRect(x - 12 * z, y - 14 * z, 24 * z, 4 * z);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.strokeRect(x - 12 * z, y - 14 * z, 24 * z, 4 * z);
+
+        // Dual Holographic Monitors (Left & Right)
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 0.8 * z;
+
+        // Left Screen
+        ctx.fillRect(x - 12 * z, y - 24 * z, 10 * z, 8 * z);
+        ctx.strokeRect(x - 12 * z, y - 24 * z, 10 * z, 8 * z);
+
+        // Right Screen
+        ctx.fillRect(x + 2 * z, y - 24 * z, 10 * z, 8 * z);
+        ctx.strokeRect(x + 2 * z, y - 24 * z, 10 * z, 8 * z);
+
+        // Central Holographic Projector (Rotating Wireframe Diamond/Cube)
+        const holoAngle = Date.now() * 0.003;
+        ctx.save();
+        ctx.strokeStyle = '#7dd3fc';
+        ctx.shadowColor = '#38bdf8';
+        ctx.shadowBlur = 10 * z;
+        ctx.lineWidth = 1 * z;
+        ctx.beginPath();
+        const hx = x;
+        const hy = y - 20 * z + Math.sin(holoAngle) * 2 * z;
+        ctx.moveTo(hx, hy - 6 * z);
+        ctx.lineTo(hx + Math.cos(holoAngle) * 5 * z, hy);
+        ctx.lineTo(hx, hy + 6 * z);
+        ctx.lineTo(hx - Math.cos(holoAngle) * 5 * z, hy);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+
+        // Coffee mug on desk
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(x - 10 * z, y - 13 * z, 2.5 * z, 3 * z);
         break;
       }
 
@@ -1455,80 +1507,346 @@ export class WorkshopCanvas {
         break;
       }
 
-      case 'filing_vault': {
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(x - 10 * z, y - 22 * z, 20 * z, 20 * z);
-        ctx.fillStyle = '#3b82f6';
-        ctx.fillRect(x - 7 * z, y - 18 * z, 14 * z, 3 * z);
-        ctx.fillRect(x - 7 * z, y - 12 * z, 14 * z, 3 * z);
-        break;
-      }
-
-      case 'search_radar': {
-        ctx.fillStyle = '#1e293b';
-        ctx.beginPath();
-        ctx.arc(x, y - 8 * z, 10 * z, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#06b6d4';
-        ctx.lineWidth = 2 * z;
-        ctx.beginPath();
-        ctx.moveTo(x, y - 8 * z);
-        ctx.lineTo(x + Math.cos(this.radarAngle) * 10 * z, y - 8 * z + Math.sin(this.radarAngle) * 10 * z);
-        ctx.stroke();
-        break;
-      }
-
       case 'cnc_lathe': {
+        // 3D Industrial CNC Lathe & Code Milling Center
+        const isPulse = st.pulseTime > 0.05;
+
+        // Concrete Machine Bed
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1 * z;
+        ctx.beginPath();
+        ctx.ellipse(x, y + 6 * z, 26 * z, 13 * z, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Heavy Cast Iron Machine Frame (3D Chassis)
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x - 18 * z, y - 16 * z, 36 * z, 18 * z);
+        ctx.strokeStyle = isPulse ? '#ec4899' : '#475569';
+        ctx.strokeRect(x - 18 * z, y - 16 * z, 36 * z, 18 * z);
+
+        // Acrylic Safety Canopy Hood (Glass front)
+        ctx.fillStyle = 'rgba(236, 72, 153, 0.12)';
+        ctx.fillRect(x - 15 * z, y - 26 * z, 30 * z, 14 * z);
+        ctx.strokeStyle = isPulse ? '#f472b6' : '#64748b';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 15 * z, y - 26 * z, 30 * z, 14 * z);
+
+        // Rotating Spindle Chuck Head
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillRect(x - 12 * z, y - 20 * z, 8 * z, 8 * z);
+        ctx.fillStyle = isPulse ? '#f43f5e' : '#cbd5e1';
+        ctx.beginPath();
+        ctx.arc(x - 8 * z, y - 16 * z, 3 * z, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Robotic Cutting Laser & Active Milling Sparks
         ctx.fillStyle = '#475569';
-        ctx.fillRect(x - 14 * z, y - 12 * z, 28 * z, 10 * z);
-        ctx.fillStyle = '#ec4899';
-        ctx.fillRect(x - 3 * z, y - 20 * z, 6 * z, 10 * z);
-        if (st.pulseTime > 0.2) {
-          ctx.strokeStyle = '#f43f5e';
-          ctx.lineWidth = 1.5 * z;
+        ctx.fillRect(x + 2 * z, y - 22 * z, 6 * z, 12 * z);
+
+        if (isPulse) {
+          ctx.save();
+          // Laser beam
+          ctx.strokeStyle = '#fb7185';
+          ctx.lineWidth = 2 * z;
+          ctx.shadowColor = '#f43f5e';
+          ctx.shadowBlur = 12 * z;
           ctx.beginPath();
-          ctx.moveTo(x, y - 10 * z);
-          ctx.lineTo(x, y - 2 * z);
+          ctx.moveTo(x + 5 * z, y - 10 * z);
+          ctx.lineTo(x - 6 * z, y - 14 * z);
           ctx.stroke();
+
+          // Machining spark burst
+          for (let s = 0; s < 3; s++) {
+            ctx.fillStyle = '#fef08a';
+            ctx.fillRect(
+              x - 6 * z + (Math.random() - 0.5) * 8 * z,
+              y - 14 * z + (Math.random() - 0.5) * 6 * z,
+              1.5 * z,
+              1.5 * z
+            );
+          }
+          ctx.restore();
         }
         break;
       }
 
       case 'test_furnace': {
+        // 3D Isometric Testing Blast Furnace & CI Smelter
+        const isPulse = st.pulseTime > 0.05;
+        const isCritical = st.overheating;
+
+        // Base firebrick foundation
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1 * z;
+        ctx.beginPath();
+        ctx.ellipse(x, y + 6 * z, 24 * z, 12 * z, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Heavy Cylindrical Hearth Tower
+        ctx.fillStyle = isCritical ? '#450a0a' : '#1e293b';
+        ctx.fillRect(x - 16 * z, y - 20 * z, 32 * z, 22 * z);
+        ctx.strokeStyle = isCritical ? '#ef4444' : isPulse ? '#10b981' : '#334155';
+        ctx.lineWidth = 1.2 * z;
+        ctx.strokeRect(x - 16 * z, y - 20 * z, 32 * z, 22 * z);
+
+        // Circular Reinforced Inspection Porthole with bubbling molten test fluid
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath();
+        ctx.arc(x, y - 10 * z, 9 * z, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = isCritical ? '#ef4444' : '#10b981';
+        ctx.lineWidth = 1 * z;
+        ctx.stroke();
+
+        const fluidColor = isCritical ? '#ef4444' : isPulse ? '#34d399' : '#059669';
+        ctx.fillStyle = fluidColor;
+        ctx.beginPath();
+        ctx.arc(x, y - 10 * z, 6.5 * z, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Top Smokestacks & Chimney Pipes
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(x - 10 * z, y - 28 * z, 6 * z, 10 * z);
+        ctx.fillRect(x + 4 * z, y - 28 * z, 6 * z, 10 * z);
+
+        // Active smoke/spark emission from chimneys
+        if (isPulse || isCritical) {
+          ctx.save();
+          ctx.fillStyle = isCritical ? '#f87171' : '#6ee7b7';
+          ctx.beginPath();
+          ctx.arc(x - 7 * z, y - 30 * z, 2.5 * z, 0, Math.PI * 2);
+          ctx.arc(x + 7 * z, y - 31 * z, 2.5 * z, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+        break;
+      }
+
+      case 'search_radar': {
+        // 3D Telemetry Radar Tower with Rotating Dish
+        const isPulse = st.pulseTime > 0.05;
+
+        // Base foundation
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1 * z;
+        ctx.beginPath();
+        ctx.ellipse(x, y + 4 * z, 20 * z, 10 * z, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Steel Lattice Tripod Tower
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1.2 * z;
+        ctx.beginPath();
+        ctx.moveTo(x - 10 * z, y + 2 * z);
+        ctx.lineTo(x, y - 18 * z);
+        ctx.lineTo(x + 10 * z, y + 2 * z);
+        ctx.stroke();
+
+        // Horizontal crossbars
+        ctx.beginPath();
+        ctx.moveTo(x - 6 * z, y - 6 * z);
+        ctx.lineTo(x + 6 * z, y - 6 * z);
+        ctx.stroke();
+
+        // Rotating 3D Radar Dish
+        ctx.save();
+        ctx.translate(x, y - 22 * z);
+
+        // Parabolic Dish Curvature
+        const dishAngle = this.radarAngle;
+        const dishWidth = Math.cos(dishAngle) * 14 * z;
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = isPulse ? '#22d3ee' : '#0891b2';
+        ctx.lineWidth = 1.2 * z;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, Math.max(3 * z, Math.abs(dishWidth)), 9 * z, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Antenna Feed Horn & Sweeping Beam
+        ctx.fillStyle = '#06b6d4';
+        ctx.fillRect(-2 * z, -2 * z, 4 * z, 4 * z);
+
+        if (isPulse) {
+          ctx.shadowColor = '#06b6d4';
+          ctx.shadowBlur = 12 * z;
+          ctx.strokeStyle = '#67e8f9';
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(dishAngle) * 25 * z, -8 * z);
+          ctx.stroke();
+        }
+        ctx.restore();
+        break;
+      }
+
+      case 'filing_vault': {
+        // 3D High-Tech Armored Document Vault
+        const isPulse = st.pulseTime > 0.05;
+
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(x - 16 * z, y - 26 * z, 32 * z, 26 * z);
+        ctx.strokeStyle = isPulse ? '#3b82f6' : '#334155';
+        ctx.lineWidth = 1.2 * z;
+        ctx.strokeRect(x - 16 * z, y - 26 * z, 32 * z, 26 * z);
+
+        // Heavy Reinforced Safe Door
         ctx.fillStyle = '#1e293b';
         ctx.beginPath();
-        ctx.arc(x, y - 10 * z, 12 * z, 0, Math.PI * 2);
+        ctx.arc(x - 2 * z, y - 13 * z, 10 * z, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = st.pulseTime > 0.1 ? '#10b981' : '#047857';
+        ctx.strokeStyle = '#60a5fa';
+        ctx.lineWidth = 1 * z;
+        ctx.stroke();
+
+        // Vault Spoke Wheel Handle
+        ctx.fillStyle = '#94a3b8';
         ctx.beginPath();
-        ctx.arc(x, y - 10 * z, 6 * z, 0, Math.PI * 2);
+        ctx.arc(x - 2 * z, y - 13 * z, 3 * z, 0, Math.PI * 2);
         ctx.fill();
+
+        // Blue Document Filing Drawers (Right side)
+        for (let d = 0; d < 3; d++) {
+          const dY = y - 22 * z + d * 7 * z;
+          ctx.fillStyle = '#0284c7';
+          ctx.fillRect(x + 6 * z, dY, 8 * z, 4 * z);
+        }
         break;
       }
 
       case 'phone_booth': {
-        ctx.fillStyle = '#581c87';
-        ctx.fillRect(x - 8 * z, y - 24 * z, 16 * z, 22 * z);
+        // 3D Cyberpunk Quantum Comm Kiosk
+        const isPulse = st.pulseTime > 0.05;
+
+        // Base Pedestal
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(x - 10 * z, y - 4 * z, 20 * z, 4 * z);
+
+        // Glass Acoustic Booth Cabin
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.15)';
+        ctx.fillRect(x - 9 * z, y - 26 * z, 18 * z, 22 * z);
+        ctx.strokeStyle = isPulse ? '#c084fc' : '#7e22ce';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 9 * z, y - 26 * z, 18 * z, 22 * z);
+
+        // Neon Roof Canopy
+        ctx.fillStyle = '#6b21a8';
+        ctx.fillRect(x - 11 * z, y - 29 * z, 22 * z, 4 * z);
+        ctx.strokeStyle = '#d8b4fe';
+        ctx.strokeRect(x - 11 * z, y - 29 * z, 22 * z, 4 * z);
+
+        // Roof Transmission Antenna
+        ctx.strokeStyle = '#a855f7';
+        ctx.lineWidth = 1 * z;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 29 * z);
+        ctx.lineTo(x, y - 36 * z);
+        ctx.stroke();
+
+        // Holographic Handset Screen
         ctx.fillStyle = '#c084fc';
-        ctx.fillRect(x - 5 * z, y - 20 * z, 10 * z, 8 * z);
+        ctx.fillRect(x - 4 * z, y - 18 * z, 8 * z, 6 * z);
         break;
       }
 
       case 'conveyor': {
+        // 3D Industrial Roller Conveyor & Cargo Dispatch
+        // Concrete Bed
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#334155';
+        ctx.lineWidth = 1 * z;
+        ctx.beginPath();
+        ctx.ellipse(x, y + 2 * z, 28 * z, 10 * z, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Steel Support Legs
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(x - 16 * z, y - 4 * z, 3 * z, 8 * z);
+        ctx.fillRect(x + 13 * z, y - 4 * z, 3 * z, 8 * z);
+
+        // Conveyor Side Rails & Bed
         ctx.fillStyle = '#1e293b';
-        ctx.fillRect(x - 14 * z, y - 7 * z, 28 * z, 7 * z);
-        ctx.fillStyle = '#14b8a6';
-        const crateX = x - 12 * z + this.conveyorOffset * 20 * z;
-        ctx.fillRect(crateX, y - 12 * z, 6 * z, 6 * z);
+        ctx.fillRect(x - 18 * z, y - 10 * z, 36 * z, 8 * z);
+        ctx.strokeStyle = '#0d9488';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 18 * z, y - 10 * z, 36 * z, 8 * z);
+
+        // Rotating Cylindrical Rollers
+        for (let r = 0; r < 5; r++) {
+          const rx = x - 14 * z + r * 7 * z;
+          ctx.fillStyle = '#475569';
+          ctx.fillRect(rx, y - 9 * z, 4 * z, 6 * z);
+        }
+
+        // 3D Shipping Cargo Crate Moving Along Conveyor
+        const crateOffset = (this.conveyorOffset * 22 - 11) * z;
+        const cx = x + crateOffset;
+        const cy = y - 12 * z;
+
+        // Wooden / Metallic 3D Cargo Crate
+        ctx.fillStyle = '#d97706';
+        ctx.fillRect(cx - 5 * z, cy - 8 * z, 10 * z, 10 * z);
+        ctx.strokeStyle = '#fde68a';
+        ctx.lineWidth = 0.8 * z;
+        ctx.strokeRect(cx - 5 * z, cy - 8 * z, 10 * z, 10 * z);
+
+        // Crate cross braces
+        ctx.beginPath();
+        ctx.moveTo(cx - 5 * z, cy - 8 * z);
+        ctx.lineTo(cx + 5 * z, cy + 2 * z);
+        ctx.moveTo(cx + 5 * z, cy - 8 * z);
+        ctx.lineTo(cx - 5 * z, cy + 2 * z);
+        ctx.stroke();
         break;
       }
 
       case 'security_gate': {
-        ctx.fillStyle = '#475569';
-        ctx.fillRect(x - 14 * z, y - 18 * z, 5 * z, 18 * z);
-        ctx.fillRect(x + 9 * z, y - 18 * z, 5 * z, 18 * z);
-        ctx.fillStyle = '#ef4444';
-        ctx.fillRect(x - 14 * z, y - 12 * z, 28 * z, 4 * z);
+        // 3D Security Portal & Lint Scanning Turnstile
+        const isPulse = st.pulseTime > 0.05;
+
+        // Dual Carbon-Fiber Scanning Pylons
+        // Left Pylon
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(x - 18 * z, y - 26 * z, 7 * z, 26 * z);
+        ctx.strokeStyle = isPulse ? '#22c55e' : '#ef4444';
+        ctx.lineWidth = 1 * z;
+        ctx.strokeRect(x - 18 * z, y - 26 * z, 7 * z, 26 * z);
+
+        // Right Pylon
+        ctx.fillRect(x + 11 * z, y - 26 * z, 7 * z, 26 * z);
+        ctx.strokeRect(x + 11 * z, y - 26 * z, 7 * z, 26 * z);
+
+        // Overhead Scanning Header Bar
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x - 18 * z, y - 28 * z, 36 * z, 4 * z);
+        ctx.strokeStyle = '#64748b';
+        ctx.strokeRect(x - 18 * z, y - 28 * z, 36 * z, 4 * z);
+
+        // Vertical Holographic Laser Scanner Grid
+        ctx.save();
+        const laserColor = isPulse ? '#22c55e' : '#ef4444';
+        ctx.strokeStyle = laserColor;
+        ctx.lineWidth = 1.2 * z;
+        ctx.shadowColor = laserColor;
+        ctx.shadowBlur = 8 * z;
+        ctx.setLineDash([3 * z, 2 * z]);
+
+        for (let b = 0; b < 3; b++) {
+          const bx = x - 6 * z + b * 6 * z;
+          ctx.beginPath();
+          ctx.moveTo(bx, y - 24 * z);
+          ctx.lineTo(bx, y);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.restore();
         break;
       }
     }
