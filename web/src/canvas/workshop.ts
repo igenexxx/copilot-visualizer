@@ -321,23 +321,27 @@ export class WorkshopCanvas {
     };
   }
 
-  public handleEvent(evt: VisualizerEvent): void {
+  public handleEvent(evt: VisualizerEvent, isHistory: boolean = false): void {
     // 1. Determine Floor for agent
     const floor = this.getOrCreateFloorForAgent(evt.agentId, evt.agentRole || 'crafter');
-    this.elevatorTargetLevel = floor.level;
+    if (!isHistory) {
+      this.elevatorTargetLevel = floor.level;
+    }
 
-    // 2. Find or update worker on this floor
-    let worker = floor.workers.get(evt.agentId);
+    // 2. Get or create worker agent for this floor
+    const workerId = evt.agentId || floor.agentId;
+    let worker = floor.workers.get(workerId);
+
     if (!worker) {
       worker = {
-        id: evt.agentId,
-        name: `${(evt.agentRole || 'agent').toUpperCase()} ${evt.agentId.slice(-4)}`,
-        role: (evt.agentRole || 'crafter') as any,
-        x: 10,
-        y: 5,
-        targetX: 5,
-        targetY: 5,
-        state: 'walking',
+        id: workerId,
+        name: evt.agentId ? evt.agentId.slice(0, 14) : 'Subagent',
+        role: (evt.agentRole as any) || 'crafter',
+        x: 8,
+        y: 8,
+        targetX: 8,
+        targetY: 8,
+        state: 'idle',
         color: floor.color,
       };
       floor.workers.set(worker.id, worker);
@@ -351,57 +355,67 @@ export class WorkshopCanvas {
       worker.currentStation = evt.station;
       worker.activeEvent = evt;
 
-      targetStation.active = true;
-      targetStation.pulseTime = 1.0;
       targetStation.lastEvent = evt;
       targetStation.itemsCount++;
       targetStation.totalOperations++;
 
-      // Machine Wear & Heat calculation
-      let heatBoost = 12;
-      let wearBoost = 0.6;
-      if (evt.station === 'cnc_lathe') {
-        heatBoost = 24;
-        wearBoost = 1.6;
-      } else if (evt.station === 'test_furnace') {
-        heatBoost = 28;
-        wearBoost = 1.8;
-      } else if (evt.station === 'search_radar') {
-        heatBoost = 18;
-        wearBoost = 1.1;
-      } else if (evt.station === 'filing_vault') {
-        heatBoost = 14;
-        wearBoost = 0.8;
-      }
+      if (isHistory) {
+        // Position worker immediately at station without travel or heat spike
+        worker.x = targetStation.gridX;
+        worker.y = targetStation.gridY;
+        worker.state = 'idle';
+      } else {
+        targetStation.active = true;
+        targetStation.pulseTime = 1.0;
 
-      targetStation.heatLevel = Math.min(100, targetStation.heatLevel + heatBoost);
-      targetStation.wearPct = Math.min(100, targetStation.wearPct + wearBoost);
-      targetStation.temperatureC = Math.round(24 + (targetStation.heatLevel / 100) * 780);
-      targetStation.overheating = targetStation.heatLevel >= 70;
+        // Live Machine Wear & Heat calculation
+        let heatBoost = 12;
+        let wearBoost = 0.6;
+        if (evt.station === 'cnc_lathe') {
+          heatBoost = 24;
+          wearBoost = 1.6;
+        } else if (evt.station === 'test_furnace') {
+          heatBoost = 28;
+          wearBoost = 1.8;
+        } else if (evt.station === 'search_radar') {
+          heatBoost = 18;
+          wearBoost = 1.1;
+        } else if (evt.station === 'filing_vault') {
+          heatBoost = 14;
+          wearBoost = 0.8;
+        }
 
-      this.spawnStationEffects(evt.station, targetStation.gridX, targetStation.gridY, floor.level);
+        targetStation.heatLevel = Math.min(100, targetStation.heatLevel + heatBoost);
+        targetStation.wearPct = Math.min(100, targetStation.wearPct + wearBoost);
+        targetStation.temperatureC = Math.round(24 + (targetStation.heatLevel / 100) * 780);
+        targetStation.overheating = targetStation.heatLevel >= 70;
 
-      // Trigger holographic report flight from Subagent Office (3, 13) to Master Foreman (8, 8)
-      if (evt.station === 'subagent_office' || evt.type === 'subagent.delegate' || evt.type === 'subagent.return') {
-        this.flyingReports.push({
-          id: `rep-${Date.now()}-${Math.random()}`,
-          floorLevel: floor.level,
-          startGridX: 3,
-          startGridY: 13,
-          targetGridX: 8,
-          targetGridY: 8,
-          progress: 0,
-          title: evt.title || 'Subagent Blueprint Report',
-          color: '#a855f7',
-        });
+        this.spawnStationEffects(evt.station, targetStation.gridX, targetStation.gridY, floor.level);
+
+        // Trigger holographic report flight from Subagent Office (3, 13) to Master Foreman (8, 8)
+        if (evt.station === 'subagent_office' || evt.type === 'subagent.delegate' || evt.type === 'subagent.return') {
+          this.flyingReports.push({
+            id: `rep-${Date.now()}-${Math.random()}`,
+            floorLevel: floor.level,
+            startGridX: 3,
+            startGridY: 13,
+            targetGridX: 8,
+            targetGridY: 8,
+            progress: 0,
+            title: evt.title || 'Subagent Blueprint Report',
+            color: '#a855f7',
+          });
+        }
       }
     }
 
-    // Set speech bubble
-    worker.speechBubble = {
-      text: evt.title,
-      expiresAt: Date.now() + 4000,
-    };
+    // Set speech bubble (live only)
+    if (!isHistory) {
+      worker.speechBubble = {
+        text: evt.title,
+        expiresAt: Date.now() + 4000,
+      };
+    }
 
     if (evt.type === 'emergency.stop') {
       this.emergencyStopActive = evt.payload?.active === true;
@@ -410,12 +424,14 @@ export class WorkshopCanvas {
           w.state = this.emergencyStopActive ? 'stopped' : 'idle';
         }
       }
-    } else if (evt.type === 'mcp.call' || evt.type === 'mcp.response') {
-      worker.state = 'on_phone';
-    } else if (evt.type === 'agent.think') {
-      worker.state = 'thinking';
-    } else if (evt.type === 'file.write' || evt.type === 'command.run') {
-      worker.state = 'working';
+    } else if (!isHistory) {
+      if (evt.type === 'mcp.call' || evt.type === 'mcp.response') {
+        worker.state = 'on_phone';
+      } else if (evt.type === 'agent.think') {
+        worker.state = 'thinking';
+      } else if (evt.type === 'file.write' || evt.type === 'command.run') {
+        worker.state = 'working';
+      }
     }
   }
 

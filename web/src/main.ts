@@ -850,6 +850,11 @@ class App {
 
       const history = await this.client.fetchHistory();
       history.forEach((evt) => this.handleIncomingEvent(evt, true));
+
+      // Re-apply persisted session state after history replay to guarantee exact metrics and normal thermals
+      if (sessions && sessions.length > 0) {
+        await this.restoreSessionState(sessions[0].id);
+      }
     } finally {
       this.isInitialLoading = false;
       this.updateHUD();
@@ -916,6 +921,9 @@ class App {
             if (typeof wData.wearPct === 'number') st.wearPct = wData.wearPct;
             if (typeof wData.totalOperations === 'number') st.totalOperations = wData.totalOperations;
             if (typeof wData.itemsCount === 'number') st.itemsCount = wData.itemsCount;
+            st.overheating = st.heatLevel >= 70;
+            st.pulseTime = 0;
+            st.active = false;
           }
         }
       }
@@ -975,8 +983,8 @@ class App {
 
     // If currently on live stream, process event and play procedural audio
     if (this.currentPlaybackIndex < 0) {
-      this.workshopCanvas.handleEvent(event);
-      this.graphCanvas.handleEvent(event);
+      this.workshopCanvas.handleEvent(event, isHistory);
+      this.graphCanvas.handleEvent(event, isHistory);
 
       // Web Audio Soundscape Dispatch (LIVE ONLY)
       if (!isHistory) {

@@ -211,8 +211,8 @@ export class FlowGraphCanvas {
     ];
   }
 
-  public handleEvent(evt: VisualizerEvent): void {
-    const now = Date.now();
+  public handleEvent(evt: VisualizerEvent, isHistory: boolean = false): void {
+    const now = isHistory ? 0 : Date.now();
 
     // 1. Process Domain Files
     if (evt.type === 'file.write' || evt.type === 'file.read') {
@@ -240,7 +240,7 @@ export class FlowGraphCanvas {
       const node = this.stageNodes.get(nodeKey);
       if (node) {
         node.pulseTime = now;
-        node.stats.status = 'ACTIVE';
+        node.stats.status = isHistory ? 'IDLE' : 'ACTIVE';
         node.stats.primaryValue = `${targetDomain.files.size} Files`;
         node.stats.secondaryValue = `+${targetDomain.linesAdded} / -${targetDomain.linesRemoved}`;
       }
