@@ -119,7 +119,7 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 		switch strings.ToLower(toolName) {
 		case "read", "view", "fileread":
 			role = events.RoleInspector
-			station = events.StationFilingVault
+			station = events.StationRepoShelf
 			evtType = events.TypeFileRead
 			if f, ok := toolInput["file_path"].(string); ok {
 				title = fmt.Sprintf("Reading: %s", filepath.Base(f))

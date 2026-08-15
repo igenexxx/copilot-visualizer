@@ -46,14 +46,17 @@ const (
 type StationType string
 
 const (
-	StationForemanDesk  StationType = "foreman_desk"  // Central blueprint & planning hub
-	StationFilingVault  StationType = "filing_vault"  // File reads & codebase navigation
-	StationSearchRadar  StationType = "search_radar"  // Grep & symbol search
-	StationCNCLathe     StationType = "cnc_lathe"     // File edits, patch writes & code forging
-	StationTestFurnace  StationType = "test_furnace"  // Shell execution, test runs & builds
-	StationPhoneBooth   StationType = "phone_booth"   // MCP calls & remote servers
-	StationConveyor     StationType = "conveyor"      // Output delivery & artifact transit
-	StationSecurityGate StationType = "security_gate" // Safety barrier & checkpoint approval
+	StationForemanDesk     StationType = "foreman_desk"     // Central blueprint & planning hub
+	StationFilingVault     StationType = "filing_vault"     // File reads & codebase navigation
+	StationRepoShelf       StationType = "repo_shelf"       // Project directory modular shelves (/pkg, /cmd, /web)
+	StationServerRack      StationType = "server_rack"      // MCP server vault & fiber database racks
+	StationSubagentOffice  StationType = "subagent_office"  // Glass-walled subagent suite
+	StationSearchRadar     StationType = "search_radar"     // Grep & symbol search
+	StationCNCLathe        StationType = "cnc_lathe"        // File edits, patch writes & code forging
+	StationTestFurnace     StationType = "test_furnace"     // Shell execution, test runs & builds
+	StationPhoneBooth      StationType = "phone_booth"      // MCP calls & remote servers
+	StationConveyor        StationType = "conveyor"         // Output delivery & artifact transit
+	StationSecurityGate    StationType = "security_gate"    // Safety barrier & checkpoint approval
 )
 
 // Event is the canonical payload sent across the WebSocket event stream.

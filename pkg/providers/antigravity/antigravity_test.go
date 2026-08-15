@@ -99,13 +99,13 @@ func TestAntigravity_AllToolTypes(t *testing.T) {
 	}
 
 	expectedStations := []events.StationType{
-		events.StationFilingVault,
-		events.StationFilingVault,
+		events.StationRepoShelf,
+		events.StationRepoShelf,
 		events.StationSearchRadar,
 		events.StationCNCLathe,
 		events.StationTestFurnace,
-		events.StationPhoneBooth,
-		events.StationForemanDesk,
+		events.StationServerRack,
+		events.StationSubagentOffice,
 		events.StationForemanDesk,
 	}
 

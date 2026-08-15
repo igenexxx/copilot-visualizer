@@ -44,7 +44,7 @@ func TestClaude_ToolsAndModels(t *testing.T) {
 		{
 			line:            `{"model":"claude-3-7-sonnet","tool_use":{"name":"Read","input":{"file_path":"/src/main.rs"}}}`,
 			expectedType:    events.TypeFileRead,
-			expectedStation: events.StationFilingVault,
+			expectedStation: events.StationRepoShelf,
 			expectedModel:   "claude-3-7-sonnet",
 		},
 		{

@@ -152,8 +152,8 @@ func TestAntigravityProvider_ParsingAndModels(t *testing.T) {
 		t.Errorf("unexpected file write event: %+v", evts[1])
 	}
 
-	// File read (Filing Vault)
-	if evts[2].Type != events.TypeFileRead || evts[2].Station != events.StationFilingVault {
+	// File read (Repo Shelves)
+	if evts[2].Type != events.TypeFileRead || evts[2].Station != events.StationRepoShelf {
 		t.Errorf("unexpected file read event: %+v", evts[2])
 	}
 
@@ -162,8 +162,8 @@ func TestAntigravityProvider_ParsingAndModels(t *testing.T) {
 		t.Errorf("unexpected command run event: %+v", evts[3])
 	}
 
-	// MCP tool call (Phone Booth)
-	if evts[4].Type != events.TypeMCPCall || evts[4].Station != events.StationPhoneBooth {
+	// MCP tool call (Server Rack)
+	if evts[4].Type != events.TypeMCPCall || evts[4].Station != events.StationServerRack {
 		t.Errorf("unexpected mcp call event: %+v", evts[4])
 	}
 

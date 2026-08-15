@@ -947,24 +947,144 @@ export class WorkshopCanvas {
       }
 
       case 'repo_shelf': {
-        // Warehouse Shelving Compartments for /pkg, /cmd, /web
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(x - 14 * z, y - 24 * z, 28 * z, 24 * z);
-        ctx.strokeStyle = '#475569';
+        // 3D Isometric Modular Voxel Cubes & Repository Storage Blocks
+        const drawIsoVoxelCube = (
+          cx: number,
+          cy: number,
+          sizeW: number,
+          sizeH: number,
+          topColor: string,
+          leftColor: string,
+          rightColor: string,
+          borderColor: string,
+          label: string,
+          badgeColor: string,
+          isPulsing: boolean
+        ) => {
+          const halfW = sizeW * 0.5 * z;
+          const halfH = sizeW * 0.25 * z;
+          const h = sizeH * z;
+
+          // Left Face
+          ctx.beginPath();
+          ctx.moveTo(cx - halfW, cy);
+          ctx.lineTo(cx, cy + halfH);
+          ctx.lineTo(cx, cy + halfH - h);
+          ctx.lineTo(cx - halfW, cy - h);
+          ctx.closePath();
+          ctx.fillStyle = leftColor;
+          ctx.fill();
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = 0.8 * z;
+          ctx.stroke();
+
+          // Right Face
+          ctx.beginPath();
+          ctx.moveTo(cx, cy + halfH);
+          ctx.lineTo(cx + halfW, cy);
+          ctx.lineTo(cx + halfW, cy - h);
+          ctx.lineTo(cx, cy + halfH - h);
+          ctx.closePath();
+          ctx.fillStyle = rightColor;
+          ctx.fill();
+          ctx.strokeStyle = borderColor;
+          ctx.lineWidth = 0.8 * z;
+          ctx.stroke();
+
+          // Top Face
+          ctx.beginPath();
+          ctx.moveTo(cx, cy - h - halfH);
+          ctx.lineTo(cx + halfW, cy - h);
+          ctx.lineTo(cx, cy - h + halfH);
+          ctx.lineTo(cx - halfW, cy - h);
+          ctx.closePath();
+          ctx.fillStyle = isPulsing ? '#ffffff' : topColor;
+          ctx.fill();
+          ctx.strokeStyle = isPulsing ? '#ffffff' : borderColor;
+          ctx.lineWidth = isPulsing ? 1.5 * z : 0.8 * z;
+          ctx.stroke();
+
+          // Glowing Aura Shockwave if active
+          if (isPulsing) {
+            ctx.save();
+            ctx.shadowColor = badgeColor;
+            ctx.shadowBlur = 18 * z;
+            ctx.strokeStyle = badgeColor;
+            ctx.lineWidth = 2 * z;
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // Floating Directory Label Badge
+          ctx.save();
+          ctx.font = `bold ${Math.max(7, 8 * z)}px monospace`;
+          ctx.fillStyle = isPulsing ? '#ffffff' : badgeColor;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          ctx.fillText(label, cx, cy - h - halfH - 2 * z);
+          ctx.restore();
+        };
+
+        const pulse = st.pulseTime > 0.05;
+        const lastTitle = (st.lastEvent?.title || st.lastEvent?.summary || '').toLowerCase();
+        const pulsePkg = pulse && (lastTitle.includes('pkg') || lastTitle.includes('go') || !lastTitle.includes('web'));
+        const pulseCmd = pulse && (lastTitle.includes('cmd') || lastTitle.includes('main'));
+        const pulseWeb = pulse && (lastTitle.includes('web') || lastTitle.includes('src') || lastTitle.includes('css') || lastTitle.includes('ts'));
+
+        // Base Industrial Concrete Foundation Platform
+        ctx.fillStyle = '#0f172a';
+        ctx.strokeStyle = '#334155';
         ctx.lineWidth = 1 * z;
-        ctx.strokeRect(x - 14 * z, y - 24 * z, 28 * z, 24 * z);
+        ctx.beginPath();
+        ctx.ellipse(x, y + 8 * z, 38 * z, 18 * z, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
 
-        // Top Shelf (/pkg)
-        ctx.fillStyle = '#3b82f6';
-        ctx.fillRect(x - 11 * z, y - 21 * z, 22 * z, 4 * z);
+        // 1. Blue Voxel Tower: /pkg (Top-Left block)
+        drawIsoVoxelCube(
+          x - 16 * z,
+          y - 4 * z,
+          24,
+          28,
+          '#3b82f6',
+          '#1d4ed8',
+          '#1e40af',
+          '#60a5fa',
+          '📁 /pkg',
+          '#38bdf8',
+          pulsePkg
+        );
 
-        // Middle Shelf (/cmd)
-        ctx.fillStyle = '#10b981';
-        ctx.fillRect(x - 11 * z, y - 14 * z, 22 * z, 4 * z);
+        // 2. Green Voxel Tower: /cmd (Center-Top block)
+        drawIsoVoxelCube(
+          x + 14 * z,
+          y - 12 * z,
+          22,
+          20,
+          '#10b981',
+          '#059669',
+          '#047857',
+          '#34d399',
+          '📁 /cmd',
+          '#34d399',
+          pulseCmd
+        );
 
-        // Bottom Shelf (/web)
-        ctx.fillStyle = '#ec4899';
-        ctx.fillRect(x - 11 * z, y - 7 * z, 22 * z, 4 * z);
+        // 3. Pink/Purple Voxel Tower: /web (Front-Right block)
+        drawIsoVoxelCube(
+          x + 6 * z,
+          y + 8 * z,
+          24,
+          24,
+          '#ec4899',
+          '#db2777',
+          '#be185d',
+          '#f472b6',
+          '📁 /web',
+          '#f472b6',
+          pulseWeb
+        );
+
         break;
       }
 

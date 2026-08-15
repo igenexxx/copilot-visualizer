@@ -171,7 +171,7 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 		switch name {
 		case "view_file", "read_resource", "read_url_content":
 			role = events.RoleInspector
-			station = events.StationFilingVault
+			station = events.StationRepoShelf
 			evtType = events.TypeFileRead
 			if path, ok := args["AbsolutePath"].(string); ok {
 				title = fmt.Sprintf("Reading: %s", filepath.Base(path))
@@ -180,7 +180,7 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 
 		case "list_dir":
 			role = events.RoleInspector
-			station = events.StationFilingVault
+			station = events.StationRepoShelf
 			evtType = events.TypeFileRead
 			if path, ok := args["DirectoryPath"].(string); ok {
 				title = fmt.Sprintf("Listing: %s", filepath.Base(path))
@@ -219,19 +219,19 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 
 		case "call_mcp_tool":
 			role = events.RoleOperator
-			station = events.StationPhoneBooth
+			station = events.StationServerRack
 			evtType = events.TypeMCPCall
 			serverName, _ := args["ServerName"].(string)
 			toolName, _ := args["ToolName"].(string)
 			title = fmt.Sprintf("MCP: %s / %s", serverName, toolName)
 			summary = fmt.Sprintf("Calling tool %s on MCP server %s", toolName, serverName)
 
-		case "invoke_subagent":
+		case "invoke_subagent", "define_subagent":
 			role = events.RoleForeman
-			station = events.StationForemanDesk
+			station = events.StationSubagentOffice
 			evtType = events.TypeSubagentDelegate
 			title = "Summoning Subagent Specialist"
-			summary = "Delegating subtask to child agent"
+			summary = "Delegating subtask to child agent in glass suite"
 			if subagents, ok := args["Subagents"].([]any); ok && len(subagents) > 0 {
 				if firstSub, ok := subagents[0].(map[string]any); ok {
 					subRole, _ := firstSub["Role"].(string)

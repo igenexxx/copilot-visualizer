@@ -46,8 +46,8 @@ func TestParser_AntigravityParsing(t *testing.T) {
 		t.Errorf("unexpected think event mapping: %+v", evts[0])
 	}
 
-	// Verify view_file mapping to Filing Vault
-	if evts[1].Type != events.TypeFileRead || evts[1].Station != events.StationFilingVault {
+	// Verify view_file mapping to Repo Shelves
+	if evts[1].Type != events.TypeFileRead || evts[1].Station != events.StationRepoShelf {
 		t.Errorf("unexpected view_file mapping: %+v", evts[1])
 	}
 
