@@ -73,6 +73,11 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 			preview = "Analyzing next steps"
 		}
 
+		summaryClean := strings.TrimSpace(entry.Thinking)
+		if len(summaryClean) > 160 {
+			summaryClean = summaryClean[:158] + "…"
+		}
+
 		evt := events.NewEvent(
 			fmt.Sprintf("think-%d-%d", entry.StepIndex, time.Now().UnixNano()),
 			sessionID,
@@ -82,7 +87,7 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 		).
 			WithRole(events.RoleForeman).
 			WithStation(events.StationForemanDesk).
-			WithSummary(entry.Thinking).
+			WithSummary(summaryClean).
 			WithPayload("thinking", entry.Thinking).
 			WithPayload("stepIndex", entry.StepIndex)
 

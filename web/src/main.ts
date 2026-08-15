@@ -866,14 +866,18 @@ class App {
     else if (event.type === 'emergency.stop') badgeClass = 'badge-estop';
 
     const timeStr = new Date(event.timestamp).toLocaleTimeString([], { hour12: false });
+    const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const safeTitle = escape(event.title || 'Event');
+    const safeSummary = event.summary ? escape(event.summary) : '';
 
     item.innerHTML = `
       <div class="feed-item-header">
         <span class="feed-badge ${badgeClass}">${event.type}</span>
         <span class="feed-time">${timeStr}</span>
       </div>
-      <div class="feed-title">${event.title}</div>
-      ${event.summary ? `<div class="feed-summary">${event.summary}</div>` : ''}
+      <div class="feed-title">${safeTitle}</div>
+      ${safeSummary ? `<div class="feed-summary">${safeSummary}</div>` : ''}
     `;
 
     item.addEventListener('click', () => {

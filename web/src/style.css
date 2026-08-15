@@ -1183,13 +1183,23 @@ canvas {
 .feed-title {
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+  font-size: 11px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .feed-summary {
   font-size: 10px;
   color: var(--text-secondary);
-  line-height: 1.3;
+  line-height: 1.35;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 48px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 /* Checkpoint Modal Dialog */
