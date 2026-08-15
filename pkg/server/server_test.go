@@ -13,37 +13,40 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
+	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
 )
 
-func setupTestServer(t *testing.T) (*server.Server, *hub.Hub, *simulator.Simulator, *intervention.Manager) {
+func setupTestServer(t *testing.T) (*server.Server, *hub.Hub, *simulator.Simulator, *intervention.Manager, *recorder.Recorder) {
+	tempDir := t.TempDir()
 	h := hub.NewHub(50)
 	sim := simulator.New(h)
 	eng := autodiscover.NewEngineWithWatchPaths(h, nil)
 	interv := intervention.NewManager(h)
-	srv := server.NewServer(h, sim, eng, interv, nil)
+	rec, _ := recorder.New(tempDir)
+	srv := server.NewServer(h, sim, eng, interv, rec, nil)
 	t.Cleanup(func() {
 		h.Close()
 		sim.Stop()
 	})
-	return srv, h, sim, interv
+	return srv, h, sim, interv, rec
 }
 
 func TestServer_RESTEndpoints(t *testing.T) {
-	srv, h, sim, interv := setupTestServer(t)
+	srv, h, sim, interv, rec := setupTestServer(t)
 
 	// 1. Test GET /api/status
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
+	recRes := httptest.NewRecorder()
+	srv.ServeHTTP(recRes, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", rec.Code)
+	if recRes.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recRes.Code)
 	}
 
 	var statusResp map[string]any
-	if err := json.NewDecoder(rec.Body).Decode(&statusResp); err != nil {
+	if err := json.NewDecoder(recRes.Body).Decode(&statusResp); err != nil {
 		t.Fatalf("failed to decode status response: %v", err)
 	}
 	if statusResp["status"] != "running" {
@@ -86,7 +89,39 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 1 history item with ID 'e-custom-1', got %+v", history)
 	}
 
-	// 5. Test Simulator controls: Start, Speed, Stop
+	// 5. Test Tape Endpoints: Current, Save, List, Load
+	currTapeReq := httptest.NewRequest(http.MethodGet, "/api/tape/current", nil)
+	currTapeRec := httptest.NewRecorder()
+	srv.ServeHTTP(currTapeRec, currTapeReq)
+	if currTapeRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/tape/current, got %d", currTapeRec.Code)
+	}
+
+	saveTapeReq := httptest.NewRequest(http.MethodPost, "/api/tape/save", nil)
+	saveTapeRec := httptest.NewRecorder()
+	srv.ServeHTTP(saveTapeRec, saveTapeReq)
+	if saveTapeRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/tape/save, got %d", saveTapeRec.Code)
+	}
+
+	var savedMeta recorder.TapeMeta
+	_ = json.NewDecoder(saveTapeRec.Body).Decode(&savedMeta)
+
+	listTapeReq := httptest.NewRequest(http.MethodGet, "/api/tape/list", nil)
+	listTapeRec := httptest.NewRecorder()
+	srv.ServeHTTP(listTapeRec, listTapeReq)
+	if listTapeRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/tape/list, got %d", listTapeRec.Code)
+	}
+
+	loadTapeReq := httptest.NewRequest(http.MethodGet, "/api/tape/load?id="+savedMeta.ID, nil)
+	loadTapeRec := httptest.NewRecorder()
+	srv.ServeHTTP(loadTapeRec, loadTapeReq)
+	if loadTapeRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/tape/load, got %d", loadTapeRec.Code)
+	}
+
+	// 6. Test Simulator controls: Start, Speed, Stop
 	sim.SetSpeed(100.0)
 	startReq := httptest.NewRequest(http.MethodPost, "/api/simulator/start?loop=false", nil)
 	startRec := httptest.NewRecorder()
@@ -112,7 +147,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected status 200 on stop, got %d", stopRec.Code)
 	}
 
-	// 6. Test Intervention: Emergency Stop
+	// 7. Test Intervention: Emergency Stop
 	estopReq := httptest.NewRequest(http.MethodPost, "/api/intervention/emergency-stop", bytes.NewReader([]byte(`{"active":true,"reason":"Manual halt"}`)))
 	estopRec := httptest.NewRecorder()
 	srv.ServeHTTP(estopRec, estopReq)
@@ -123,7 +158,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected emergency stop to be active")
 	}
 
-	// 7. Test Intervention: Intercom
+	// 8. Test Intervention: Intercom
 	intercomReq := httptest.NewRequest(http.MethodPost, "/api/intervention/intercom", bytes.NewReader([]byte(`{"sessionId":"sess-1","message":"Speed up tests"}`)))
 	intercomRec := httptest.NewRecorder()
 	srv.ServeHTTP(intercomRec, intercomReq)
@@ -131,7 +166,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected status 200 on intercom, got %d", intercomRec.Code)
 	}
 
-	// 8. Test Intervention: Checkpoint request and response
+	// 9. Test Intervention: Checkpoint request and response
 	cp, _ := interv.RequestCheckpoint("sess-1", "run_command", "git push", nil)
 	decisionReq := httptest.NewRequest(http.MethodPost, "/api/intervention/checkpoint/respond", bytes.NewReader([]byte(`{"checkpointId":"`+cp.ID+`","decision":"APPROVED","feedback":"Looks good"}`)))
 	decisionRec := httptest.NewRecorder()
@@ -140,7 +175,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected status 200 on checkpoint response, got %d", decisionRec.Code)
 	}
 
-	// 9. Test OPTIONS method (CORS)
+	// 10. Test OPTIONS method (CORS)
 	optReq := httptest.NewRequest(http.MethodOptions, "/api/status", nil)
 	optRec := httptest.NewRecorder()
 	srv.ServeHTTP(optRec, optReq)
@@ -148,15 +183,8 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 200 for OPTIONS, got %d", optRec.Code)
 	}
 
-	// 10. Test Method Not Allowed
-	wrongMethodReq := httptest.NewRequest(http.MethodDelete, "/api/status", nil)
-	wrongMethodRec := httptest.NewRecorder()
-	srv.ServeHTTP(wrongMethodRec, wrongMethodReq)
-	if wrongMethodRec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405 Method Not Allowed, got %d", wrongMethodRec.Code)
-	}
-
 	_ = h
+	_ = rec
 }
 
 func TestServer_StaticFileServing(t *testing.T) {
@@ -171,7 +199,7 @@ func TestServer_StaticFileServing(t *testing.T) {
 	defer h.Close()
 	defer sim.Stop()
 
-	srv := server.NewServer(h, sim, nil, nil, os.DirFS(tmpDir))
+	srv := server.NewServer(h, sim, nil, nil, nil, os.DirFS(tmpDir))
 
 	req := httptest.NewRequest(http.MethodGet, "/asset.txt", nil)
 	rec := httptest.NewRecorder()

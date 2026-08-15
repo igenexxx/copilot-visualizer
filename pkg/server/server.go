@@ -10,6 +10,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
+	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
 )
 
@@ -19,6 +20,7 @@ type Server struct {
 	simulator    *simulator.Simulator
 	engine       *autodiscover.Engine
 	intervention *intervention.Manager
+	recorder     *recorder.Recorder
 	mux          *http.ServeMux
 	staticFS     fs.FS
 }
@@ -29,6 +31,7 @@ func NewServer(
 	sim *simulator.Simulator,
 	engine *autodiscover.Engine,
 	interv *intervention.Manager,
+	rec *recorder.Recorder,
 	staticFS fs.FS,
 ) *Server {
 	s := &Server{
@@ -36,6 +39,7 @@ func NewServer(
 		simulator:    sim,
 		engine:       engine,
 		intervention: interv,
+		recorder:     rec,
 		mux:          http.NewServeMux(),
 		staticFS:     staticFS,
 	}
@@ -59,6 +63,12 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/intervention/checkpoints", s.handleCheckpoints)
 	s.mux.HandleFunc("/api/intervention/checkpoint/respond", s.handleCheckpointDecision)
 
+	// Time-Travel Tape routes
+	s.mux.HandleFunc("/api/tape/list", s.handleTapeList)
+	s.mux.HandleFunc("/api/tape/load", s.handleTapeLoad)
+	s.mux.HandleFunc("/api/tape/save", s.handleTapeSave)
+	s.mux.HandleFunc("/api/tape/current", s.handleTapeCurrent)
+
 	if s.staticFS != nil {
 		fileServer := http.FileServer(http.FS(s.staticFS))
 		s.mux.Handle("/", fileServer)
@@ -67,7 +77,6 @@ func (s *Server) registerRoutes() {
 
 // ServeHTTP delegates to the internal ServeMux.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Enable CORS for development
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -138,6 +147,10 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.recorder != nil {
+		s.recorder.RecordEvent(&evt)
+	}
+
 	if err := s.hub.BroadcastEvent(&evt); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -146,6 +159,90 @@ func (s *Server) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "id": evt.ID})
+}
+
+func (s *Server) handleTapeList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if s.recorder == nil {
+		_ = json.NewEncoder(w).Encode([]any{})
+		return
+	}
+
+	tapes, err := s.recorder.ListTapes()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(tapes)
+}
+
+func (s *Server) handleTapeLoad(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tapeID := r.URL.Query().Get("id")
+	if tapeID == "" {
+		http.Error(w, "Tape ID parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	if s.recorder == nil {
+		http.Error(w, "Recorder not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	tape, err := s.recorder.LoadTape(tapeID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(tape)
+}
+
+func (s *Server) handleTapeSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.recorder == nil {
+		http.Error(w, "Recorder not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	meta, err := s.recorder.SaveCurrentTape()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(meta)
+}
+
+func (s *Server) handleTapeCurrent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if s.recorder == nil {
+		_ = json.NewEncoder(w).Encode(nil)
+		return
+	}
+
+	tape := s.recorder.GetCurrentTape()
+	_ = json.NewEncoder(w).Encode(tape)
 }
 
 func (s *Server) handleEmergencyStop(w http.ResponseWriter, r *http.Request) {

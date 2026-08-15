@@ -10,7 +10,11 @@ class App {
   private workshopCanvas!: WorkshopCanvas;
   private graphCanvas!: FlowGraphCanvas;
 
-  private events: VisualizerEvent[] = [];
+  private allEvents: VisualizerEvent[] = [];
+  private currentPlaybackIndex = -1;
+  private isPlayingTape = false;
+  private tapePlayInterval: number | null = null;
+
   private isSimRunning = true;
   private emergencyStopActive = false;
   private activeSessionId = 'global';
@@ -115,6 +119,35 @@ class App {
 
           <!-- Elevator Floor Selector Bar -->
           <div id="floor-selector-bar" class="floor-selector-bar"></div>
+
+          <!-- Time-Travel Scrubber Bar -->
+          <div id="timeline-bar" class="timeline-bar">
+            <div class="tape-controls">
+              <button id="tape-btn-start" class="tape-btn" title="Rewind to start">⏮</button>
+              <button id="tape-btn-step-back" class="tape-btn" title="Step back 1 event">◀</button>
+              <button id="tape-btn-play" class="tape-btn" title="Play/Pause recording">▶ Play</button>
+              <button id="tape-btn-step-fwd" class="tape-btn" title="Step forward 1 event">▶</button>
+              <button id="tape-btn-live" class="tape-btn active" title="Jump to live stream">⏭ Live</button>
+              <button id="tape-btn-save" class="tape-btn" title="Save session tape to disk">💾 Save Tape</button>
+            </div>
+
+            <div class="timeline-slider-wrapper">
+              <input
+                id="timeline-slider"
+                class="timeline-slider"
+                type="range"
+                min="0"
+                max="0"
+                value="0"
+                step="1"
+              />
+              <div class="timeline-meta">
+                <span id="timeline-curr-time">00:00</span>
+                <span id="timeline-evt-count">LIVE STREAM</span>
+                <span id="timeline-total-time">00:00</span>
+              </div>
+            </div>
+          </div>
         </main>
 
         <aside class="sidebar">
@@ -180,6 +213,26 @@ class App {
           </div>
         </div>
       </div>
+
+      <!-- Side-by-Side Code Diff Modal -->
+      <div id="diff-modal" class="diff-modal-overlay" style="display: none;">
+        <div class="diff-modal">
+          <div class="diff-modal-header">
+            <div id="diff-modal-title" class="diff-title">📄 Code Revision Diff</div>
+            <button id="btn-diff-close" class="diff-close-btn">✕</button>
+          </div>
+          <div class="diff-body">
+            <div class="diff-pane diff-pane-left">
+              <div class="diff-pane-title">Previous Snapshot (Before)</div>
+              <div id="diff-left-content"></div>
+            </div>
+            <div class="diff-pane diff-pane-right">
+              <div class="diff-pane-title">Applied Patch (After)</div>
+              <div id="diff-right-content"></div>
+            </div>
+          </div>
+        </div>
+      </div>
     `;
 
     this.bindControls();
@@ -202,6 +255,9 @@ class App {
         `${node.subtitle} (${node.badge})`,
         { ...node.metrics, ...node.details }
       );
+      if (node.type === 'file') {
+        this.openDiffModal(node.title, node.filePath, node.details);
+      }
     };
 
     this.workshopCanvas.onFloorChanged = () => {
@@ -297,6 +353,62 @@ class App {
       this.graphCanvas.centerView();
     });
 
+    // Time-Travel Playback Controls
+    const slider = document.getElementById('timeline-slider') as HTMLInputElement;
+    const btnPlay = document.getElementById('tape-btn-play')!;
+    const btnStart = document.getElementById('tape-btn-start')!;
+    const btnStepBack = document.getElementById('tape-btn-step-back')!;
+    const btnStepFwd = document.getElementById('tape-btn-step-fwd')!;
+    const btnLive = document.getElementById('tape-btn-live')!;
+    const btnSaveTape = document.getElementById('tape-btn-save')!;
+
+    slider.addEventListener('input', () => {
+      const idx = parseInt(slider.value, 10);
+      this.seekToEventIndex(idx);
+    });
+
+    btnPlay.addEventListener('click', () => {
+      if (this.isPlayingTape) {
+        this.pauseTapePlayback();
+      } else {
+        this.startTapePlayback();
+      }
+    });
+
+    btnStart.addEventListener('click', () => {
+      this.seekToEventIndex(0);
+    });
+
+    btnStepBack.addEventListener('click', () => {
+      const curr = this.currentPlaybackIndex < 0 ? this.allEvents.length - 1 : this.currentPlaybackIndex;
+      this.seekToEventIndex(Math.max(0, curr - 1));
+    });
+
+    btnStepFwd.addEventListener('click', () => {
+      const curr = this.currentPlaybackIndex < 0 ? this.allEvents.length - 1 : this.currentPlaybackIndex;
+      this.seekToEventIndex(Math.min(this.allEvents.length - 1, curr + 1));
+    });
+
+    btnLive.addEventListener('click', () => {
+      this.pauseTapePlayback();
+      this.currentPlaybackIndex = -1;
+      btnLive.classList.add('active');
+      this.replayAllEventsUpTo(this.allEvents.length - 1);
+      document.getElementById('timeline-evt-count')!.textContent = 'LIVE STREAM';
+    });
+
+    btnSaveTape.addEventListener('click', async () => {
+      const meta = await this.client.saveTape();
+      if (meta) {
+        alert(`Tape saved successfully: ${meta.id} (${meta.eventCount} events)`);
+      }
+    });
+
+    // Diff modal close
+    document.getElementById('btn-diff-close')!.onclick = () => {
+      document.getElementById('diff-modal')!.style.display = 'none';
+    };
+
     // Emergency Stop Button
     const btnEstop = document.getElementById('btn-estop')!;
     btnEstop.addEventListener('click', async () => {
@@ -349,7 +461,7 @@ class App {
       await this.client.setSimulatorSpeed(speed);
     });
 
-    // Inject custom event (includes checkpoint simulation)
+    // Inject custom event
     const btnInject = document.getElementById('btn-trigger-burst')!;
     btnInject.addEventListener('click', async () => {
       const sampleEvents: Partial<VisualizerEvent>[] = [
@@ -371,9 +483,9 @@ class App {
           agentId: 'agent-crafter-1',
           agentRole: 'crafter',
           station: 'cnc_lathe',
-          title: 'Manual Forge: api_client.go',
-          summary: 'Injected custom code write event with sparks',
-          payload: { file: 'pkg/api/client.go', lines: 54 },
+          title: 'Forge: pkg/intervention/recorder.go',
+          summary: 'Time-travel tape serialization snapshot',
+          payload: { file: 'pkg/intervention/recorder.go', lines: 72 },
         },
       ];
       const randomEvt = sampleEvents[Math.floor(Math.random() * sampleEvents.length)];
@@ -383,11 +495,110 @@ class App {
     // Clear feed
     const btnClear = document.getElementById('btn-clear')!;
     btnClear.addEventListener('click', () => {
-      this.events = [];
+      this.allEvents = [];
       const feed = document.getElementById('feed-pane')!;
       feed.innerHTML = '';
       document.getElementById('stream-count')!.textContent = '0 events';
     });
+  }
+
+  private seekToEventIndex(index: number): void {
+    if (this.allEvents.length === 0) return;
+    this.currentPlaybackIndex = Math.max(0, Math.min(this.allEvents.length - 1, index));
+
+    const slider = document.getElementById('timeline-slider') as HTMLInputElement;
+    slider.value = String(this.currentPlaybackIndex);
+
+    document.getElementById('tape-btn-live')!.classList.remove('active');
+    document.getElementById('timeline-evt-count')!.textContent = `EVENT ${this.currentPlaybackIndex + 1} / ${this.allEvents.length}`;
+
+    const targetEvt = this.allEvents[this.currentPlaybackIndex];
+    if (targetEvt) {
+      const timeStr = new Date(targetEvt.timestamp).toLocaleTimeString();
+      document.getElementById('timeline-curr-time')!.textContent = timeStr;
+    }
+
+    this.replayAllEventsUpTo(this.currentPlaybackIndex);
+  }
+
+  private startTapePlayback(): void {
+    this.isPlayingTape = true;
+    const btnPlay = document.getElementById('tape-btn-play')!;
+    btnPlay.classList.add('active');
+    btnPlay.textContent = '⏸ Pause';
+
+    if (this.currentPlaybackIndex < 0 || this.currentPlaybackIndex >= this.allEvents.length - 1) {
+      this.currentPlaybackIndex = 0;
+    }
+
+    this.tapePlayInterval = window.setInterval(() => {
+      if (this.currentPlaybackIndex < this.allEvents.length - 1) {
+        this.seekToEventIndex(this.currentPlaybackIndex + 1);
+      } else {
+        this.pauseTapePlayback();
+      }
+    }, 600);
+  }
+
+  private pauseTapePlayback(): void {
+    this.isPlayingTape = false;
+    if (this.tapePlayInterval !== null) {
+      clearInterval(this.tapePlayInterval);
+      this.tapePlayInterval = null;
+    }
+    const btnPlay = document.getElementById('tape-btn-play')!;
+    btnPlay.classList.remove('active');
+    btnPlay.textContent = '▶ Play';
+  }
+
+  private replayAllEventsUpTo(endIndex: number): void {
+    // Reset canvas models
+    const wsCanvasEl = document.getElementById('workshop-canvas') as HTMLCanvasElement;
+    const grCanvasEl = document.getElementById('graph-canvas') as HTMLCanvasElement;
+
+    this.workshopCanvas.stop();
+    this.graphCanvas.stop();
+
+    this.workshopCanvas = new WorkshopCanvas(wsCanvasEl);
+    this.graphCanvas = new FlowGraphCanvas(grCanvasEl);
+
+    this.workshopCanvas.onFloorChanged = () => this.renderFloorSelector();
+    this.workshopCanvas.start();
+    this.graphCanvas.start();
+
+    // Re-apply events chronologically
+    for (let i = 0; i <= endIndex && i < this.allEvents.length; i++) {
+      const evt = this.allEvents[i];
+      this.workshopCanvas.handleEvent(evt);
+      this.graphCanvas.handleEvent(evt);
+    }
+    this.renderFloorSelector();
+  }
+
+  private openDiffModal(title: string, filePath?: string, details?: Record<string, any>): void {
+    const modal = document.getElementById('diff-modal')!;
+    const titleEl = document.getElementById('diff-modal-title')!;
+    const leftEl = document.getElementById('diff-left-content')!;
+    const rightEl = document.getElementById('diff-right-content')!;
+
+    titleEl.innerHTML = `<span>📄 ${filePath || title}</span> <span class="diff-badge-add">+${details?.linesChanged || 12}</span> <span class="diff-badge-del">-2</span>`;
+
+    leftEl.innerHTML = `
+      <span class="diff-line-del">- // Old implementation snapshot</span>
+      <span class="diff-line-del">- func ProcessSession(id string) error {</span>
+      <span class="diff-line-del">-     return nil</span>
+      <span>  }</span>
+    `;
+
+    rightEl.innerHTML = `
+      <span class="diff-line-add">+ // Time-Travel Playback Enabled</span>
+      <span class="diff-line-add">+ func ProcessSession(id string, tape *recorder.SessionTape) error {</span>
+      <span class="diff-line-add">+     if tape != nil { tape.Record() }</span>
+      <span>      return nil</span>
+      <span>  }</span>
+    `;
+
+    modal.style.display = 'flex';
   }
 
   private setupSubscriptions(): void {
@@ -420,8 +631,18 @@ class App {
   }
 
   private handleIncomingEvent(event: VisualizerEvent): void {
-    this.events.unshift(event);
-    if (this.events.length > 100) this.events.pop();
+    this.allEvents.push(event);
+
+    // Update time slider bounds
+    const slider = document.getElementById('timeline-slider') as HTMLInputElement;
+    if (slider) {
+      slider.max = String(Math.max(0, this.allEvents.length - 1));
+      if (this.currentPlaybackIndex < 0) {
+        slider.value = slider.max;
+        const timeStr = new Date(event.timestamp).toLocaleTimeString();
+        document.getElementById('timeline-total-time')!.textContent = timeStr;
+      }
+    }
 
     if (event.sessionId && event.sessionId !== 'global') {
       this.activeSessionId = event.sessionId;
@@ -453,9 +674,11 @@ class App {
 
     this.updateHUD();
 
-    // Pass to canvas engines
-    this.workshopCanvas.handleEvent(event);
-    this.graphCanvas.handleEvent(event);
+    // If currently on live stream, process event
+    if (this.currentPlaybackIndex < 0) {
+      this.workshopCanvas.handleEvent(event);
+      this.graphCanvas.handleEvent(event);
+    }
 
     // Celebrate session completion with confetti
     if (event.type === 'session.end') {
@@ -498,7 +721,7 @@ class App {
     document.getElementById('hud-workers')!.textContent = String(this.stats.activeAgents);
     document.getElementById('hud-files')!.textContent = String(this.stats.filesWritten);
     document.getElementById('hud-mcp')!.textContent = String(this.stats.mcpCalls);
-    document.getElementById('stream-count')!.textContent = `${this.events.length} events`;
+    document.getElementById('stream-count')!.textContent = `${this.allEvents.length} events`;
   }
 
   private appendFeedItem(event: VisualizerEvent): void {
@@ -529,6 +752,9 @@ class App {
 
     item.addEventListener('click', () => {
       this.renderInspector(`⚡ ${event.title}`, event.summary || event.type, event.payload);
+      if (event.type === 'file.write') {
+        this.openDiffModal(event.title, event.payload?.file, event.payload);
+      }
     });
 
     feed.prepend(item);

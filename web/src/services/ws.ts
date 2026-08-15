@@ -154,6 +154,50 @@ export class VisualizerClient {
     return [];
   }
 
+  public async fetchTapeList(): Promise<any[]> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/tape/list`);
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Failed to fetch tape list:', e);
+    }
+    return [];
+  }
+
+  public async loadTape(tapeId: string): Promise<any | null> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/tape/load?id=${encodeURIComponent(tapeId)}`);
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Failed to load tape:', e);
+    }
+    return null;
+  }
+
+  public async saveTape(): Promise<any | null> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/tape/save`, { method: 'POST' });
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Failed to save tape:', e);
+    }
+    return null;
+  }
+
+  public async fetchCurrentTape(): Promise<any | null> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/tape/current`);
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Failed to fetch current tape:', e);
+    }
+    return null;
+  }
+
   public async startSimulator(loop: boolean = true): Promise<void> {
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     await fetch(`${host}/api/simulator/start?loop=${loop}`, { method: 'POST' });
