@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zhenya/copilot-visualizer/pkg/autodiscover"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/mcpproxy"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
@@ -24,12 +25,21 @@ func main() {
 	port := flag.Int("port", 9876, "HTTP and WebSocket server port")
 	tailPath := flag.String("tail", "", "Optional log file to tail (JSONL)")
 	runMCPProxy := flag.Bool("mcp-proxy", false, "Run as an MCP stdio proxy shim")
-	demoMode := flag.Bool("demo", true, "Auto-start simulated demo scenarios")
+	autoDiscover := flag.Bool("auto-discover", true, "Auto-discover active Antigravity / Copilot / Claude sessions")
+	demoMode := flag.Bool("demo", false, "Start simulated demo scenario loop (default: auto-discover live sessions)")
 	customStaticDir := flag.String("static", "", "Optional custom static directory override (defaults to embedded UI)")
 	flag.Parse()
 
 	eventHub := hub.NewHub(500)
 	sim := simulator.New(eventHub)
+
+	// Initialize Auto-Discovery Engine
+	engine := autodiscover.NewEngine(eventHub, nil)
+	if *autoDiscover {
+		ctx := context.Background()
+		engine.StartWatcher(ctx)
+		log.Println("🔍 Auto-Discovery engine started. Watching Antigravity, Claude Code & Copilot sessions...")
+	}
 
 	// If MCP proxy mode is requested via CLI stdin/stdout
 	if *runMCPProxy {
@@ -39,7 +49,7 @@ func main() {
 		}()
 	}
 
-	// If a tail file is supplied
+	// If a tail file is explicitly supplied
 	if *tailPath != "" {
 		t := tailer.New(eventHub, "tail-session")
 		go func() {
@@ -68,7 +78,7 @@ func main() {
 		staticFS = embeddedFS
 	}
 
-	srvHandler := server.NewServer(eventHub, sim, staticFS)
+	srvHandler := server.NewServer(eventHub, sim, engine, staticFS)
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
 		Handler:      srvHandler,
@@ -77,7 +87,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("🏭 Copilot Visualizer (Single Binary with Embedded UI) running at http://localhost:%d", *port)
+		log.Printf("🏭 Copilot Visualizer running at http://localhost:%d", *port)
 		log.Printf("🔌 WebSocket live stream at ws://localhost:%d/ws", *port)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server error: %v", err)
@@ -90,6 +100,7 @@ func main() {
 	<-stopChan
 
 	log.Println("Shutting down gracefully...")
+	engine.StopWatcher()
 	sim.Stop()
 	eventHub.Close()
 

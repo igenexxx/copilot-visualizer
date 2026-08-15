@@ -48,6 +48,11 @@ class App {
         </div>
 
         <div class="header-right">
+          <div id="session-badge" class="session-badge" title="Auto-discovered session">
+            <span class="session-dot"></span>
+            <span id="session-text">SEARCHING SESSIONS...</span>
+          </div>
+
           <div class="status-pill">
             <span id="ws-dot" class="status-dot"></span>
             <span id="ws-text">CONNECTING...</span>
@@ -254,11 +259,27 @@ class App {
   private async loadInitialHistory(): Promise<void> {
     const history = await this.client.fetchHistory();
     history.forEach((evt) => this.handleIncomingEvent(evt));
+
+    const sessions = await this.client.fetchSessions();
+    if (sessions && sessions.length > 0) {
+      const active = sessions[0];
+      const sessEl = document.getElementById('session-text');
+      if (sessEl) {
+        sessEl.textContent = `${active.source.toUpperCase()}: ${active.id.slice(0, 10)}`;
+      }
+    }
   }
 
   private handleIncomingEvent(event: VisualizerEvent): void {
     this.events.unshift(event);
     if (this.events.length > 100) this.events.pop();
+
+    if (event.sessionId) {
+      const sessEl = document.getElementById('session-text');
+      if (sessEl) {
+        sessEl.textContent = `LIVE: ${event.sessionId.slice(0, 12)}`;
+      }
+    }
 
     // Update stats
     this.stats.totalEvents++;

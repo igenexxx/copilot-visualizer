@@ -101,6 +101,19 @@ export class VisualizerClient {
     return [];
   }
 
+  public async fetchSessions(): Promise<any[]> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/sessions`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed to fetch sessions:', e);
+    }
+    return [];
+  }
+
   public async startSimulator(loop: boolean = true): Promise<void> {
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     await fetch(`${host}/api/simulator/start?loop=${loop}`, { method: 'POST' });

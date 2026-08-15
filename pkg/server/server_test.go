@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/zhenya/copilot-visualizer/pkg/autodiscover"
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
@@ -18,7 +19,8 @@ import (
 func setupTestServer(t *testing.T) (*server.Server, *hub.Hub, *simulator.Simulator) {
 	h := hub.NewHub(50)
 	sim := simulator.New(h)
-	srv := server.NewServer(h, sim, nil)
+	eng := autodiscover.NewEngineWithWatchPaths(h, nil)
+	srv := server.NewServer(h, sim, eng, nil)
 	t.Cleanup(func() {
 		h.Close()
 		sim.Stop()
@@ -46,7 +48,15 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Errorf("expected status 'running', got %v", statusResp["status"])
 	}
 
-	// 2. Test Ingest Event POST /api/events
+	// 2. Test GET /api/sessions
+	sessReq := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	sessRec := httptest.NewRecorder()
+	srv.ServeHTTP(sessRec, sessReq)
+	if sessRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on /api/sessions, got %d", sessRec.Code)
+	}
+
+	// 3. Test Ingest Event POST /api/events
 	evt := events.NewEvent("e-custom-1", "sess-test", events.TypeToolCall, "agent-1", "Custom Tool")
 	body, _ := json.Marshal(evt)
 	ingestReq := httptest.NewRequest(http.MethodPost, "/api/events", bytes.NewReader(body))
@@ -57,7 +67,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected status 202 Accepted, got %d", ingestRec.Code)
 	}
 
-	// 3. Test GET /api/history
+	// 4. Test GET /api/history
 	histReq := httptest.NewRequest(http.MethodGet, "/api/history", nil)
 	histRec := httptest.NewRecorder()
 	srv.ServeHTTP(histRec, histReq)
@@ -74,7 +84,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 1 history item with ID 'e-custom-1', got %+v", history)
 	}
 
-	// 4. Test Simulator controls: Start, Speed, Stop
+	// 5. Test Simulator controls: Start, Speed, Stop
 	sim.SetSpeed(100.0)
 	startReq := httptest.NewRequest(http.MethodPost, "/api/simulator/start?loop=false", nil)
 	startRec := httptest.NewRecorder()
@@ -100,7 +110,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected status 200 on stop, got %d", stopRec.Code)
 	}
 
-	// 5. Test OPTIONS method (CORS)
+	// 6. Test OPTIONS method (CORS)
 	optReq := httptest.NewRequest(http.MethodOptions, "/api/status", nil)
 	optRec := httptest.NewRecorder()
 	srv.ServeHTTP(optRec, optReq)
@@ -108,7 +118,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 200 for OPTIONS, got %d", optRec.Code)
 	}
 
-	// 6. Test Method Not Allowed
+	// 7. Test Method Not Allowed
 	wrongMethodReq := httptest.NewRequest(http.MethodDelete, "/api/status", nil)
 	wrongMethodRec := httptest.NewRecorder()
 	srv.ServeHTTP(wrongMethodRec, wrongMethodReq)
@@ -116,7 +126,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 405 Method Not Allowed, got %d", wrongMethodRec.Code)
 	}
 
-	// 7. Test invalid JSON ingest
+	// 8. Test invalid JSON ingest
 	badIngestReq := httptest.NewRequest(http.MethodPost, "/api/events", bytes.NewReader([]byte("{invalid-json")))
 	badIngestRec := httptest.NewRecorder()
 	srv.ServeHTTP(badIngestRec, badIngestReq)
@@ -124,7 +134,7 @@ func TestServer_RESTEndpoints(t *testing.T) {
 		t.Fatalf("expected 400 Bad Request on invalid JSON, got %d", badIngestRec.Code)
 	}
 
-	// 8. Test invalid speed multiplier
+	// 9. Test invalid speed multiplier
 	badSpeedReq := httptest.NewRequest(http.MethodPost, "/api/simulator/speed?multiplier=-10", nil)
 	badSpeedRec := httptest.NewRecorder()
 	srv.ServeHTTP(badSpeedRec, badSpeedReq)
@@ -146,7 +156,7 @@ func TestServer_StaticFileServing(t *testing.T) {
 	defer h.Close()
 	defer sim.Stop()
 
-	srv := server.NewServer(h, sim, os.DirFS(tmpDir))
+	srv := server.NewServer(h, sim, nil, os.DirFS(tmpDir))
 
 	req := httptest.NewRequest(http.MethodGet, "/asset.txt", nil)
 	rec := httptest.NewRecorder()

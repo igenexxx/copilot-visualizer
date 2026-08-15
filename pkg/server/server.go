@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/zhenya/copilot-visualizer/pkg/autodiscover"
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
@@ -15,15 +16,17 @@ import (
 type Server struct {
 	hub       *hub.Hub
 	simulator *simulator.Simulator
+	engine    *autodiscover.Engine
 	mux       *http.ServeMux
 	staticFS  fs.FS
 }
 
 // NewServer initializes the server dependencies and registers HTTP routes.
-func NewServer(h *hub.Hub, sim *simulator.Simulator, staticFS fs.FS) *Server {
+func NewServer(h *hub.Hub, sim *simulator.Simulator, engine *autodiscover.Engine, staticFS fs.FS) *Server {
 	s := &Server{
 		hub:       h,
 		simulator: sim,
+		engine:    engine,
 		mux:       http.NewServeMux(),
 		staticFS:  staticFS,
 	}
@@ -36,6 +39,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/history", s.handleHistory)
 	s.mux.HandleFunc("/api/events", s.handleIngestEvent)
+	s.mux.HandleFunc("/api/sessions", s.handleSessions)
 	s.mux.HandleFunc("/api/simulator/start", s.handleSimStart)
 	s.mux.HandleFunc("/api/simulator/stop", s.handleSimStop)
 	s.mux.HandleFunc("/api/simulator/speed", s.handleSimSpeed)
@@ -75,6 +79,20 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"simulatorSpeed":  s.simulator.GetSpeed(),
 	}
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	var sessions []autodiscover.DiscoveredSession
+	if s.engine != nil {
+		sessions = s.engine.ScanSessions()
+	}
+	_ = json.NewEncoder(w).Encode(sessions)
 }
 
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
