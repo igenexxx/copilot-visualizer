@@ -14,12 +14,24 @@ export interface ModelPricing {
 }
 
 export const ALL_PRICING_MODELS: Record<string, ModelPricing> = {
-  // Google / Antigravity Family
-  'gemini-2.5-pro': {
-    id: 'gemini-2.5-pro',
+  // Google / Antigravity Family (Gemini 3.7 & 2.5)
+  'gemini-3.7-flash': {
+    id: 'gemini-3.7-flash',
     source: 'antigravity',
-    name: 'Gemini 2.5 Pro',
-    agentLabel: '🔮 Gemini 2.5 Pro (Antigravity)',
+    name: 'Gemini 3.7 Flash',
+    agentLabel: '⚡ Gemini 3.7 Flash (Antigravity)',
+    provider: 'Google',
+    maxContext: 1000000,
+    inputPerMillion: 0.15,
+    outputPerMillion: 0.6,
+    cachePerMillion: 0.0375,
+    badgeColor: '#06b6d4',
+  },
+  'gemini-3.7-pro': {
+    id: 'gemini-3.7-pro',
+    source: 'antigravity',
+    name: 'Gemini 3.7 Pro',
+    agentLabel: '🔮 Gemini 3.7 Pro (Antigravity)',
     provider: 'Google',
     maxContext: 2000000,
     inputPerMillion: 1.25,
@@ -27,29 +39,29 @@ export const ALL_PRICING_MODELS: Record<string, ModelPricing> = {
     cachePerMillion: 0.31,
     badgeColor: '#a855f7',
   },
+  'gemini-2.5-pro': {
+    id: 'gemini-2.5-pro',
+    source: 'antigravity',
+    name: 'Gemini 2.5 Pro',
+    agentLabel: '🔮 Gemini 2.5 Pro',
+    provider: 'Google',
+    maxContext: 2000000,
+    inputPerMillion: 1.25,
+    outputPerMillion: 5.0,
+    cachePerMillion: 0.31,
+    badgeColor: '#8b5cf6',
+  },
   'gemini-2.5-flash': {
     id: 'gemini-2.5-flash',
     source: 'antigravity',
     name: 'Gemini 2.5 Flash',
-    agentLabel: '⚡ Gemini 2.5 Flash (Subagent)',
+    agentLabel: '⚡ Gemini 2.5 Flash',
     provider: 'Google',
     maxContext: 1000000,
     inputPerMillion: 0.15,
     outputPerMillion: 0.6,
     cachePerMillion: 0.0375,
-    badgeColor: '#8b5cf6',
-  },
-  'gemini-2.5-flash-lite': {
-    id: 'gemini-2.5-flash-lite',
-    source: 'antigravity',
-    name: 'Gemini 2.5 Flash-Lite',
-    agentLabel: '💡 Gemini Flash-Lite',
-    provider: 'Google',
-    maxContext: 1000000,
-    inputPerMillion: 0.075,
-    outputPerMillion: 0.3,
-    cachePerMillion: 0.01875,
-    badgeColor: '#06b6d4',
+    badgeColor: '#a855f7',
   },
 
   // Anthropic / Claude Code Family
@@ -152,7 +164,7 @@ export interface TokenomicsState {
 }
 
 export class TokenomicsTracker {
-  public activeModel: ModelPricing = ALL_PRICING_MODELS['gemini-2.5-pro'];
+  public activeModel: ModelPricing = ALL_PRICING_MODELS['gemini-3.7-flash'];
   public detectedModels: Map<string, ModelUsageRecord> = new Map();
 
   public totalContextTokens = 0;
@@ -171,7 +183,7 @@ export class TokenomicsTracker {
   private registerModelUsage(modelId: string): ModelUsageRecord {
     let rec = this.detectedModels.get(modelId);
     if (!rec) {
-      const model = ALL_PRICING_MODELS[modelId] || ALL_PRICING_MODELS['gemini-2.5-pro'];
+      const model = ALL_PRICING_MODELS[modelId] || ALL_PRICING_MODELS['gemini-3.7-flash'];
       rec = {
         model,
         inputTokens: 0,
@@ -186,7 +198,7 @@ export class TokenomicsTracker {
 
   public setSource(source: string): void {
     const normalized = source.toLowerCase();
-    let primaryModelId = 'gemini-2.5-pro';
+    let primaryModelId = 'gemini-3.7-flash';
 
     if (normalized.includes('claude')) {
       primaryModelId = 'claude-3-7-sonnet';
@@ -195,7 +207,7 @@ export class TokenomicsTracker {
       primaryModelId = 'gpt-4o';
       this.activeSource = 'copilot_cli';
     } else {
-      primaryModelId = 'gemini-2.5-pro';
+      primaryModelId = 'gemini-3.7-flash';
       this.activeSource = 'antigravity';
     }
 

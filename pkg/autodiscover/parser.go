@@ -35,7 +35,35 @@ type TranscriptParser interface {
 }
 
 // AntigravityParser converts Antigravity transcript.jsonl entries to visualizer events.
-type AntigravityParser struct{}
+type AntigravityParser struct {
+	activeModel string
+}
+
+func detectModelFromContent(content string) string {
+	lower := strings.ToLower(content)
+	if strings.Contains(lower, "gemini 3.7 flash") || strings.Contains(lower, "gemini-3.7-flash") {
+		return "gemini-3.7-flash"
+	} else if strings.Contains(lower, "gemini 3.7 pro") || strings.Contains(lower, "gemini-3.7-pro") {
+		return "gemini-3.7-pro"
+	} else if strings.Contains(lower, "gemini 2.5 flash") || strings.Contains(lower, "gemini-2.5-flash") {
+		return "gemini-2.5-flash"
+	} else if strings.Contains(lower, "gemini 2.5 pro") || strings.Contains(lower, "gemini-2.5-pro") {
+		return "gemini-2.5-pro"
+	} else if strings.Contains(lower, "claude 3.7 sonnet") || strings.Contains(lower, "claude-3-7-sonnet") {
+		return "claude-3-7-sonnet"
+	} else if strings.Contains(lower, "claude 3.5 sonnet") || strings.Contains(lower, "claude-3-5-sonnet") {
+		return "claude-3-5-sonnet"
+	} else if strings.Contains(lower, "claude 3.5 haiku") || strings.Contains(lower, "claude-3-5-haiku") {
+		return "claude-3-5-haiku"
+	} else if strings.Contains(lower, "gpt-4o-mini") {
+		return "gpt-4o-mini"
+	} else if strings.Contains(lower, "gpt-4o") {
+		return "gpt-4o"
+	} else if strings.Contains(lower, "o3-mini") {
+		return "o3-mini"
+	}
+	return ""
+}
 
 func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event {
 	line = strings.TrimSpace(line)
@@ -58,6 +86,14 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 
 	if err := json.Unmarshal([]byte(line), &entry); err != nil {
 		return nil
+	}
+
+	// Detect model switch in user input or system settings
+	if detected := detectModelFromContent(entry.Content); detected != "" {
+		p.activeModel = detected
+	}
+	if p.activeModel == "" {
+		p.activeModel = "gemini-3.7-flash" // default for modern Antigravity
 	}
 
 	var res []*events.Event
@@ -89,6 +125,8 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 			WithStation(events.StationForemanDesk).
 			WithSummary(summaryClean).
 			WithPayload("thinking", entry.Thinking).
+			WithPayload("detectedSource", "antigravity").
+			WithPayload("detectedModel", p.activeModel).
 			WithPayload("stepIndex", entry.StepIndex)
 
 		res = append(res, evt)
@@ -108,6 +146,7 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 		var evtType events.Type = events.TypeToolCall
 		title := fmt.Sprintf("Tool: %s", name)
 		summary := fmt.Sprintf("Invoking %s", name)
+		toolModel := p.activeModel
 
 		switch name {
 		case "view_file", "read_resource", "read_url_content":
@@ -182,6 +221,9 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 					}
 					if subModel != "" {
 						summary = fmt.Sprintf("Spawning %s subagent with model %s", subRole, subModel)
+						if subModel == "flash" || subModel == "flash_lite" {
+							toolModel = "gemini-3.7-flash"
+						}
 					}
 				}
 			}
@@ -194,7 +236,7 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 			WithPayload("tool", name).
 			WithPayload("args", args).
 			WithPayload("detectedSource", "antigravity").
-			WithPayload("detectedModel", "gemini-2.5-pro").
+			WithPayload("detectedModel", toolModel).
 			WithPayload("stepIndex", entry.StepIndex)
 
 		res = append(res, evt)
