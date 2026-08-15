@@ -177,7 +177,22 @@ export class TokenomicsTracker {
   public onUpdate?: (state: TokenomicsState) => void;
 
   constructor() {
-    this.registerModelUsage(this.activeModel.id);
+    this.resetSession(this.activeModel.id);
+  }
+
+  public resetSession(modelId?: string): void {
+    this.detectedModels.clear();
+    this.totalContextTokens = 0;
+    this.totalInputTokens = 0;
+    this.totalOutputTokens = 0;
+    this.totalCachedTokens = 0;
+    this.totalCostUSD = 0.0;
+
+    const initialId = modelId && ALL_PRICING_MODELS[modelId] ? modelId : 'gemini-3.7-flash';
+    this.activeModel = ALL_PRICING_MODELS[initialId];
+    this.activeSource = this.activeModel.source;
+    this.registerModelUsage(initialId);
+    this.recompute();
   }
 
   private registerModelUsage(modelId: string): ModelUsageRecord {
@@ -226,28 +241,17 @@ export class TokenomicsTracker {
   }
 
   public handleEvent(evt: VisualizerEvent): void {
-    // 1. Detect exact model from event payload or session context
+    // Strictly trust explicit detectedModel from the Go backend parser
     let eventModelId = this.activeModel.id;
 
     if (evt.payload?.detectedModel && ALL_PRICING_MODELS[evt.payload.detectedModel]) {
       eventModelId = evt.payload.detectedModel;
-    } else if (evt.payload?.model) {
-      const raw = String(evt.payload.model).toLowerCase();
-      if (raw.includes('flash_lite') || raw.includes('flash-lite')) eventModelId = 'gemini-2.5-flash-lite';
-      else if (raw.includes('flash')) eventModelId = 'gemini-2.5-flash';
-      else if (raw.includes('pro')) eventModelId = 'gemini-2.5-pro';
-      else if (raw.includes('3.7') || raw.includes('3-7')) eventModelId = 'claude-3-7-sonnet';
-      else if (raw.includes('haiku')) eventModelId = 'claude-3-5-haiku';
-      else if (raw.includes('mini') && raw.includes('o3')) eventModelId = 'o3-mini';
-      else if (raw.includes('mini')) eventModelId = 'gpt-4o-mini';
-    } else if (evt.type === 'subagent.delegate') {
-      // Subagents default to lighter fast models (e.g. Flash)
-      eventModelId = 'gemini-2.5-flash';
+      this.activeModel = ALL_PRICING_MODELS[eventModelId];
     }
 
     const rec = this.registerModelUsage(eventModelId);
 
-    // 2. Token Calculation (~3.8 chars per token)
+    // Token Calculation (~3.8 chars per token)
     let payloadChars = 0;
     if (evt.payload) {
       payloadChars = JSON.stringify(evt.payload).length;

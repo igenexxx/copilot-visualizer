@@ -735,6 +735,7 @@ class App {
   }
 
   private async loadInitialHistory(): Promise<void> {
+    this.tokenomics.resetSession('gemini-3.7-flash');
     const history = await this.client.fetchHistory();
     history.forEach((evt) => this.handleIncomingEvent(evt));
 
@@ -986,17 +987,13 @@ class App {
       }
 
       if (select) {
-        // Rebuild options if detected model list changes
-        const existingCount = select.options.length;
-        if (existingCount !== state.detectedModelsList.length) {
-          select.innerHTML = '';
-          state.detectedModelsList.forEach((m) => {
-            const opt = document.createElement('option');
-            opt.value = m.id;
-            opt.textContent = `${m.provider}: ${m.name}`;
-            select.appendChild(opt);
-          });
-        }
+        select.innerHTML = '';
+        state.detectedModelsList.forEach((m) => {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = `${m.provider}: ${m.name}`;
+          select.appendChild(opt);
+        });
         select.value = state.activeModel.id;
       }
 
