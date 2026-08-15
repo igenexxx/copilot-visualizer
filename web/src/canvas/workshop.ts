@@ -24,6 +24,18 @@ export interface FactoryFloor {
   active: boolean;
 }
 
+export interface FlyingReport {
+  id: string;
+  floorLevel: number;
+  startGridX: number;
+  startGridY: number;
+  targetGridX: number;
+  targetGridY: number;
+  progress: number;
+  title: string;
+  color: string;
+}
+
 export class WorkshopCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -38,6 +50,7 @@ export class WorkshopCanvas {
   public floors: FactoryFloor[] = [];
   public activeFloorIndex: number | 'all' = 'all'; // 'all' for full tower overview, or floor index (0, 1, 2)
   private particles: Particle[] = [];
+  private flyingReports: FlyingReport[] = [];
 
   private conveyorOffset = 0;
   private radarAngle = 0;
@@ -356,6 +369,21 @@ export class WorkshopCanvas {
       targetStation.overheating = targetStation.heatLevel >= 70;
 
       this.spawnStationEffects(evt.station, targetStation.gridX, targetStation.gridY, floor.level);
+
+      // Trigger holographic report flight from Subagent Office (3, 13) to Master Foreman (8, 8)
+      if (evt.station === 'subagent_office' || evt.type === 'subagent.delegate' || evt.type === 'subagent.return') {
+        this.flyingReports.push({
+          id: `rep-${Date.now()}-${Math.random()}`,
+          floorLevel: floor.level,
+          startGridX: 3,
+          startGridY: 13,
+          targetGridX: 8,
+          targetGridY: 8,
+          progress: 0,
+          title: evt.title || 'Subagent Blueprint Report',
+          color: '#a855f7',
+        });
+      }
     }
 
     // Set speech bubble
@@ -571,6 +599,29 @@ export class WorkshopCanvas {
       }
     }
 
+    // 4. Update Flying Subagent Reports in transit
+    for (let i = this.flyingReports.length - 1; i >= 0; i--) {
+      const rep = this.flyingReports[i];
+      rep.progress += 0.016;
+      if (rep.progress >= 1.0) {
+        const foremanPos = this.isoToScreen(rep.targetGridX, rep.targetGridY, rep.floorLevel, 10);
+        for (let p = 0; p < 12; p++) {
+          this.particles.push({
+            x: foremanPos.x + (Math.random() - 0.5) * 16,
+            y: foremanPos.y - 10,
+            vx: (Math.random() - 0.5) * 2.2,
+            vy: -Math.random() * 2.8 - 1,
+            color: Math.random() > 0.4 ? '#fbbf24' : '#c084fc',
+            size: Math.random() * 3 + 2,
+            life: 1.0,
+            maxLife: 1.0,
+            floorLevel: rep.floorLevel,
+          });
+        }
+        this.flyingReports.splice(i, 1);
+      }
+    }
+
     this.conveyorOffset = (this.conveyorOffset + 0.04) % 1;
     this.radarAngle += 0.05;
   }
@@ -755,14 +806,119 @@ export class WorkshopCanvas {
     this.ctx.fillText(fl.name, plaquePos.x, plaquePos.y);
     this.ctx.restore();
 
+    // Render Floor Fiber Optic Cables & Animated Data Photons
+    this.renderFloorCables(fl);
+
     // Render Workstations on this floor
     for (const st of fl.workstations.values()) {
       this.renderWorkstation(st, fl.level);
     }
 
+    // Render Flying Subagent Reports in transit
+    this.renderFlyingReports(fl.level);
+
     // Render Workers on this floor
     for (const worker of fl.workers.values()) {
       this.renderWorker(worker, fl.level);
+    }
+  }
+
+  private renderFloorCables(fl: FactoryFloor): void {
+    const ctx = this.ctx;
+    const z = this.zoom;
+    const centerPos = this.isoToScreen(8, 8, fl.level);
+
+    const connections = [
+      { gx: 3, gy: 3, color: '#38bdf8', active: (fl.workstations.get('server_rack')?.pulseTime || 0) > 0.05 },
+      { gx: 3, gy: 13, color: '#a855f7', active: (fl.workstations.get('subagent_office')?.pulseTime || 0) > 0.05 },
+      { gx: 13, gy: 3, color: '#3b82f6', active: (fl.workstations.get('repo_shelf')?.pulseTime || 0) > 0.05 },
+      { gx: 13, gy: 8, color: '#ec4899', active: (fl.workstations.get('cnc_lathe')?.pulseTime || 0) > 0.05 },
+      { gx: 13, gy: 13, color: '#10b981', active: (fl.workstations.get('test_furnace')?.pulseTime || 0) > 0.05 },
+    ];
+
+    const time = (Date.now() * 0.0015) % 1.0;
+
+    for (const conn of connections) {
+      const destPos = this.isoToScreen(conn.gx, conn.gy, fl.level);
+
+      ctx.save();
+      // 1. Dark floor conduit groove
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3.5 * z;
+      ctx.beginPath();
+      ctx.moveTo(centerPos.x, centerPos.y);
+      ctx.lineTo(destPos.x, destPos.y);
+      ctx.stroke();
+
+      // 2. Glowing fiber core
+      ctx.strokeStyle = conn.active ? conn.color : `${conn.color}44`;
+      ctx.lineWidth = (conn.active ? 2.0 : 1.0) * z;
+      ctx.stroke();
+
+      // 3. Flowing light photons
+      for (let p = 0; p < 3; p++) {
+        const t = (time + p * 0.33) % 1.0;
+        const px = centerPos.x + (destPos.x - centerPos.x) * t;
+        const py = centerPos.y + (destPos.y - centerPos.y) * t;
+
+        ctx.fillStyle = conn.active ? '#ffffff' : conn.color;
+        ctx.shadowColor = conn.color;
+        ctx.shadowBlur = (conn.active ? 10 : 4) * z;
+        ctx.beginPath();
+        ctx.arc(px, py, (conn.active ? 2.5 : 1.5) * z, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+
+  private renderFlyingReports(floorLevel: number): void {
+    const ctx = this.ctx;
+    const z = this.zoom;
+
+    for (const rep of this.flyingReports) {
+      if (rep.floorLevel !== floorLevel) continue;
+
+      const pStart = this.isoToScreen(rep.startGridX, rep.startGridY, floorLevel);
+      const pEnd = this.isoToScreen(rep.targetGridX, rep.targetGridY, floorLevel);
+
+      const curX = pStart.x + (pEnd.x - pStart.x) * rep.progress;
+      const curY = pStart.y + (pEnd.y - pStart.y) * rep.progress - Math.sin(rep.progress * Math.PI) * 40 * z;
+
+      ctx.save();
+
+      // Glowing Trail
+      ctx.shadowColor = '#c084fc';
+      ctx.shadowBlur = 14 * z;
+
+      // Report Folder Icon
+      ctx.fillStyle = '#fbbf24';
+      ctx.beginPath();
+      ctx.roundRect(curX - 10 * z, curY - 10 * z, 20 * z, 16 * z, 3 * z);
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1 * z;
+      ctx.stroke();
+
+      // Mini Folder Tab
+      ctx.fillStyle = '#f59e0b';
+      ctx.beginPath();
+      ctx.roundRect(curX - 10 * z, curY - 13 * z, 8 * z, 4 * z, 1.5 * z);
+      ctx.fill();
+
+      // Document Text Lines
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(curX - 6 * z, curY - 5 * z, 12 * z, 1.5 * z);
+      ctx.fillRect(curX - 6 * z, curY - 1 * z, 9 * z, 1.5 * z);
+
+      // Label floating above
+      ctx.font = `bold ${Math.max(6, 7.5 * z)}px Inter, sans-serif`;
+      ctx.fillStyle = '#e9d5ff';
+      ctx.textAlign = 'center';
+      ctx.fillText('📋 Subagent Report', curX, curY - 16 * z);
+
+      ctx.restore();
     }
   }
 
@@ -848,31 +1004,16 @@ export class WorkshopCanvas {
 
     // 2. Station Name
     this.ctx.font = `${Math.max(7, 9 * this.zoom)}px Inter, monospace`;
-    this.ctx.fillStyle = '#94a3b8';
+    this.ctx.fillStyle = isSelected ? '#f59e0b' : '#94a3b8';
     this.ctx.textAlign = 'center';
-    this.ctx.fillText(st.name, pos.x, pos.y + 20 * this.zoom);
+    this.ctx.fillText(st.name, pos.x, pos.y + 16 * this.zoom);
 
-    // 3. Thermal Gauge / Overheat Badge
-    if (st.heatLevel > 20) {
-      const isCritical = st.overheating;
-      const badgeText = isCritical ? `🔥 ${st.temperatureC}°C [OVERHEAT]` : `🌡️ ${st.temperatureC}°C`;
-      this.ctx.font = `bold ${Math.max(6, 8 * this.zoom)}px monospace`;
-      this.ctx.fillStyle = isCritical ? '#ef4444' : '#f59e0b';
-      this.ctx.fillText(badgeText, pos.x, pos.y - 28 * this.zoom);
-
-      // Mini Wear bar
-      const barW = 28 * this.zoom;
-      const barH = 3 * this.zoom;
-      this.ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
-      this.ctx.fillRect(pos.x - barW / 2, pos.y - 23 * this.zoom, barW, barH);
-      this.ctx.fillStyle = isCritical ? '#ef4444' : '#f59e0b';
-      this.ctx.fillRect(pos.x - barW / 2, pos.y - 23 * this.zoom, barW * (st.heatLevel / 100), barH);
-    }
-
-    if (st.itemsCount > 0) {
-      this.ctx.font = `bold ${Math.max(6, 8 * this.zoom)}px monospace`;
-      this.ctx.fillStyle = st.color;
-      this.ctx.fillText(`⚡ ${st.itemsCount} ops (Wear: ${st.wearPct.toFixed(0)}%)`, pos.x, pos.y + 30 * this.zoom);
+    // 3. Thermal Wear Indicator Tag
+    if (st.heatLevel > 20 || st.wearPct > 10) {
+      const heatBadge = `${st.temperatureC}°C`;
+      this.ctx.font = `bold ${Math.max(6, 7.5 * this.zoom)}px monospace`;
+      this.ctx.fillStyle = st.overheating ? '#ef4444' : st.heatLevel > 30 ? '#f59e0b' : '#38bdf8';
+      this.ctx.fillText(heatBadge, pos.x, pos.y - 30 * this.zoom);
     }
 
     this.ctx.restore();
@@ -895,54 +1036,124 @@ export class WorkshopCanvas {
       }
 
       case 'server_rack': {
-        // 19" Enterprise Server Cabinet
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(x - 12 * z, y - 26 * z, 24 * z, 26 * z);
-        ctx.strokeStyle = st.pulseTime > 0 ? '#38bdf8' : '#334155';
+        // Dual 3D Isometric 19" Server Cabinets (Server Vault)
+        const isPulse = st.pulseTime > 0.05;
+
+        // Left Cabinet (Tool Database)
+        ctx.fillStyle = '#0b1329';
+        ctx.fillRect(x - 18 * z, y - 28 * z, 16 * z, 28 * z);
+        ctx.strokeStyle = isPulse ? '#38bdf8' : '#1e293b';
         ctx.lineWidth = 1 * z;
-        ctx.strokeRect(x - 12 * z, y - 26 * z, 24 * z, 26 * z);
+        ctx.strokeRect(x - 18 * z, y - 28 * z, 16 * z, 28 * z);
 
-        // Rack Units (4U slots)
-        for (let u = 0; u < 4; u++) {
-          const uY = y - 24 * z + u * 6 * z;
+        // Right Cabinet (MCP Server Bridge)
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(x + 2 * z, y - 28 * z, 16 * z, 28 * z);
+        ctx.strokeStyle = isPulse ? '#06b6d4' : '#334155';
+        ctx.strokeRect(x + 2 * z, y - 28 * z, 16 * z, 28 * z);
+
+        // Server Blades & Blinking LED Array
+        for (let u = 0; u < 5; u++) {
+          const uY = y - 25 * z + u * 5 * z;
+
+          // Left rack blades
           ctx.fillStyle = '#1e293b';
-          ctx.fillRect(x - 10 * z, uY, 20 * z, 4.5 * z);
+          ctx.fillRect(x - 16 * z, uY, 12 * z, 3.5 * z);
 
-          // Blinking LED cluster
-          const time = Date.now() * 0.005 + u;
-          const led1 = Math.sin(time * 3) > 0;
-          const led2 = Math.cos(time * 2) > 0;
+          // Right rack blades
+          ctx.fillRect(x + 4 * z, uY, 12 * z, 3.5 * z);
 
+          const time = Date.now() * 0.006 + u;
+          const led1 = Math.sin(time * 3.5) > 0;
+          const led2 = Math.cos(time * 2.8) > 0;
+
+          // Left LEDs (Green/Cyan)
           ctx.fillStyle = led1 ? (st.overheating ? '#ef4444' : '#10b981') : '#064e3b';
-          ctx.fillRect(x - 8 * z, uY + 1.5 * z, 2 * z, 2 * z);
+          ctx.fillRect(x - 14 * z, uY + 1 * z, 1.8 * z, 1.8 * z);
 
+          // Right LEDs (Cyan/Amber)
           ctx.fillStyle = led2 ? '#38bdf8' : '#0c4a6e';
-          ctx.fillRect(x - 4 * z, uY + 1.5 * z, 2 * z, 2 * z);
+          ctx.fillRect(x + 6 * z, uY + 1 * z, 1.8 * z, 1.8 * z);
+          ctx.fillStyle = isPulse ? '#f59e0b' : '#78350f';
+          ctx.fillRect(x + 9 * z, uY + 1 * z, 1.8 * z, 1.8 * z);
+        }
 
-          ctx.fillStyle = st.pulseTime > 0.1 ? '#f59e0b' : '#78350f';
-          ctx.fillRect(x, uY + 1.5 * z, 2 * z, 2 * z);
+        // Top Roof Ventilation Fans
+        ctx.fillStyle = '#0284c7';
+        ctx.fillRect(x - 15 * z, y - 27 * z, 10 * z, 1.5 * z);
+        ctx.fillStyle = '#06b6d4';
+        ctx.fillRect(x + 5 * z, y - 27 * z, 10 * z, 1.5 * z);
+
+        // Active Cyber Data Aura
+        if (isPulse) {
+          ctx.save();
+          ctx.shadowColor = '#38bdf8';
+          ctx.shadowBlur = 14 * z;
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 1.5 * z;
+          ctx.strokeRect(x - 18 * z, y - 28 * z, 36 * z, 28 * z);
+          ctx.restore();
         }
         break;
       }
 
       case 'subagent_office': {
-        // Glass walled subagent workspace with holo-screen
-        ctx.fillStyle = 'rgba(168, 85, 247, 0.15)';
-        ctx.fillRect(x - 14 * z, y - 20 * z, 28 * z, 20 * z);
-        ctx.strokeStyle = '#a855f7';
-        ctx.lineWidth = 1 * z;
-        ctx.strokeRect(x - 14 * z, y - 20 * z, 28 * z, 20 * z);
+        // Isometric Glass Suite with Dual Workstations & Sitting Subagents
+        const isPulse = st.pulseTime > 0.05;
 
-        // Desk
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(x - 10 * z, y - 10 * z, 20 * z, 6 * z);
+        // Glass acoustic perimeter
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.12)';
+        ctx.fillRect(x - 20 * z, y - 22 * z, 40 * z, 22 * z);
+        ctx.strokeStyle = isPulse ? '#c084fc' : '#a855f7';
+        ctx.lineWidth = 1.2 * z;
+        ctx.strokeRect(x - 20 * z, y - 22 * z, 40 * z, 22 * z);
 
-        // Holo monitor
-        ctx.fillStyle = '#c084fc';
-        ctx.fillRect(x - 5 * z, y - 18 * z, 10 * z, 6 * z);
-        ctx.strokeStyle = '#e9d5ff';
+        // Desk 1 (Left - Researcher)
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x - 18 * z, y - 10 * z, 15 * z, 6 * z);
+
+        // Curved Holo Screen (Blue)
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(x - 16 * z, y - 18 * z, 11 * z, 6 * z);
+        ctx.strokeStyle = '#7dd3fc';
         ctx.lineWidth = 0.8 * z;
-        ctx.strokeRect(x - 5 * z, y - 18 * z, 10 * z, 6 * z);
+        ctx.strokeRect(x - 16 * z, y - 18 * z, 11 * z, 6 * z);
+
+        // Sitting Subagent 1 (Researcher Avatar)
+        const bob1 = Math.sin(Date.now() * 0.005) * 1 * z;
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(x - 10 * z, y - 6 * z + bob1, 3.5 * z, 0, Math.PI * 2); // head
+        ctx.fill();
+        ctx.fillStyle = '#1e40af';
+        ctx.fillRect(x - 12 * z, y - 2 * z + bob1, 4 * z, 4 * z); // body
+
+        // Desk 2 (Right - Crafter / Tester)
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(x + 3 * z, y - 10 * z, 15 * z, 6 * z);
+
+        // Curved Holo Screen (Purple)
+        ctx.fillStyle = '#c084fc';
+        ctx.fillRect(x + 5 * z, y - 18 * z, 11 * z, 6 * z);
+        ctx.strokeStyle = '#e9d5ff';
+        ctx.strokeRect(x + 5 * z, y - 18 * z, 11 * z, 6 * z);
+
+        // Sitting Subagent 2 (Crafter Avatar)
+        const bob2 = Math.cos(Date.now() * 0.006) * 1 * z;
+        ctx.fillStyle = '#a855f7';
+        ctx.beginPath();
+        ctx.arc(x + 11 * z, y - 6 * z + bob2, 3.5 * z, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#7e22ce';
+        ctx.fillRect(x + 9 * z, y - 2 * z + bob2, 4 * z, 4 * z);
+
+        // Thought Glyphs above subagents when active
+        if (isPulse) {
+          ctx.font = `bold ${Math.max(7, 8.5 * z)}px monospace`;
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.fillText('⚡ DRAFTING', x, y - 24 * z);
+        }
         break;
       }
 
