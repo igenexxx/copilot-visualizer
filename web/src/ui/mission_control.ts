@@ -32,16 +32,18 @@ export class MissionControlPanel {
 
       <div class="mc-body" id="mc-body" style="display: none;">
         <div class="mc-grid">
-          <!-- 1. Context Window & Memory Gauge -->
+          <!-- 1. Context Saturation & Cache Tracker -->
           <div class="mc-card">
             <div class="mc-card-header">
               <span>🔋 Context Saturation</span>
-              <span class="mc-model-badge" id="mc-model-id">gemini-3.7-flash</span>
+              <div>
+                <span class="mc-model-badge" id="mc-gauge-tokens" style="color: var(--text-primary); margin-right: 4px;">0k / 1M</span>
+                <span class="mc-model-badge" id="mc-model-badge">gemini-3.7-flash</span>
+              </div>
             </div>
             <div class="mc-gauge-container">
               <div class="mc-radial-gauge" id="mc-radial-gauge">
                 <span class="mc-gauge-val" id="mc-gauge-pct">0%</span>
-                <span class="mc-gauge-sub" id="mc-gauge-tokens">0 / 1M</span>
               </div>
               <div class="mc-breakdown-legend">
                 <div class="mc-legend-item"><span class="dot dot-sys"></span> System: <b id="mc-tok-sys">8.5k</b></div>
@@ -105,6 +107,7 @@ export class MissionControlPanel {
 
     const toggle = () => {
       this.isExpanded = !this.isExpanded;
+      document.body.classList.toggle('has-mc-expanded', this.isExpanded);
       if (body && toggleBtn) {
         body.style.display = this.isExpanded ? 'block' : 'none';
         toggleBtn.textContent = this.isExpanded ? '▼ Collapse' : '▲ Expand Analytics';
@@ -134,7 +137,7 @@ export class MissionControlPanel {
     }
 
     // 2. Context Gauge
-    const modelId = document.getElementById('mc-model-id');
+    const modelId = document.getElementById('mc-model-badge');
     const gaugePct = document.getElementById('mc-gauge-pct');
     const gaugeTokens = document.getElementById('mc-gauge-tokens');
     const radial = document.getElementById('mc-radial-gauge');

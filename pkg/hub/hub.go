@@ -77,15 +77,6 @@ func (h *Hub) run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
-			// Replay history to the new client
-			for _, evt := range h.history {
-				if data, err := json.Marshal(evt); err == nil {
-					select {
-					case client.send <- data:
-					default:
-					}
-				}
-			}
 			h.mu.Unlock()
 
 		case client := <-h.unregister:

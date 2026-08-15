@@ -100,21 +100,12 @@ func TestHub_WebSocketStreamingAndConcurrency(t *testing.T) {
 		t.Fatalf("expected message to contain 'Hammering anvil', got: %s", string(msg))
 	}
 
-	// Connect second client and check history replay
+	// Connect second client for live broadcast reception
 	ws2, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect ws2: %v", err)
 	}
 	defer ws2.Close()
-
-	_ = ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, replayedMsg, err := ws2.ReadMessage()
-	if err != nil {
-		t.Fatalf("failed to read replayed history from ws2: %v", err)
-	}
-	if !strings.Contains(string(replayedMsg), "Hammering anvil") {
-		t.Fatalf("expected replayed message in ws2, got: %s", string(replayedMsg))
-	}
 
 	// Adversarial concurrent broadcasts and multiple clients
 	var wg sync.WaitGroup

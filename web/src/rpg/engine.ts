@@ -122,7 +122,7 @@ export class RPGEngine {
     return this.handleEvent(evt);
   }
 
-  public handleEvent(evt: VisualizerEvent): { skillId?: string; xpGained: number; manaSpent: number } {
+  public handleEvent(evt: VisualizerEvent, isHistory: boolean = false): { skillId?: string; xpGained: number; manaSpent: number } {
     let triggeredSkillId: string | undefined;
     let xpGain = 15;
     let manaCost = 400;
@@ -133,10 +133,10 @@ export class RPGEngine {
       manaCost = 850;
     } else if (evt.type === 'file.read' || evt.type.includes('search')) {
       triggeredSkillId = 'skill-radar';
-      xpGain = 25;
+      xpGain = 30;
       manaCost = 350;
     } else if (evt.type === 'command.run' || evt.type === 'command.output') {
-      triggeredSkillId = 'skill-furnace';
+      triggeredSkillId = 'skill-laser';
       xpGain = 90;
       manaCost = 1200;
       // Recover HP on successful tests
@@ -160,8 +160,8 @@ export class RPGEngine {
       manaCost = 400;
     }
 
-    // Trigger skill highlight and cooldown animation
-    if (triggeredSkillId) {
+    // Trigger skill highlight and cooldown animation (LIVE ONLY)
+    if (triggeredSkillId && !isHistory) {
       const skill = this.skills.find((s) => s.id === triggeredSkillId);
       if (skill) {
         skill.active = true;
@@ -176,7 +176,7 @@ export class RPGEngine {
     this.stats.spellsCast++;
     this.stats.totalTokensBurned += manaCost;
     this.stats.mp = Math.max(0, this.stats.mp - manaCost);
-    this.addExperience(xpGain);
+    this.addExperience(xpGain, isHistory);
 
     if (this.onStatsChanged) {
       this.onStatsChanged(this.stats);
@@ -185,14 +185,14 @@ export class RPGEngine {
     return { skillId: triggeredSkillId, xpGained: xpGain, manaSpent: manaCost };
   }
 
-  public addExperience(amount: number): void {
+  public addExperience(amount: number, isHistory: boolean = false): void {
     this.stats.xp += amount;
     while (this.stats.xp >= this.stats.nextLevelXp) {
-      this.levelUp();
+      this.levelUp(isHistory);
     }
   }
 
-  private levelUp(): void {
+  private levelUp(isHistory: boolean = false): void {
     this.stats.xp -= this.stats.nextLevelXp;
     this.stats.level++;
     // Exponential difficulty curve for higher levels
@@ -212,7 +212,7 @@ export class RPGEngine {
     ];
     this.stats.title = titles[Math.min(titles.length - 1, this.stats.level - 1)];
 
-    if (this.onLevelUp) {
+    if (this.onLevelUp && !isHistory) {
       this.onLevelUp(this.stats.level, this.stats.title);
     }
   }

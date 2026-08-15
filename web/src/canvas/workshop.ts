@@ -22,6 +22,10 @@ export interface FactoryFloor {
   workstations: Map<StationType, Workstation>;
   workers: Map<string, WorkerAgent>;
   active: boolean;
+  cachedGridKey?: string;
+  cachedEvenPath?: Path2D;
+  cachedOddPath?: Path2D;
+  cachedGridLines?: Path2D;
 }
 
 export interface FlyingReport {
@@ -232,6 +236,10 @@ export class WorkshopCanvas {
 
   private setupEventListeners(): void {
     window.addEventListener('resize', () => this.resize());
+    if (this.canvas.parentElement && typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => this.resize());
+      ro.observe(this.canvas.parentElement);
+    }
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -551,10 +559,24 @@ export class WorkshopCanvas {
       if (this.isVisible) {
         this.update();
         this.render();
+        this.animationFrameId = requestAnimationFrame(loop);
+      } else {
+        this.animationFrameId = null;
       }
-      this.animationFrameId = requestAnimationFrame(loop);
     };
-    this.animationFrameId = requestAnimationFrame(loop);
+    if (this.isVisible) {
+      this.animationFrameId = requestAnimationFrame(loop);
+    }
+  }
+
+  public setVisible(visible: boolean): void {
+    this.isVisible = visible;
+    if (visible) {
+      this.start();
+      this.resize();
+    } else {
+      this.stop();
+    }
   }
 
   public stop(): void {
@@ -845,43 +867,51 @@ export class WorkshopCanvas {
 
   private renderSingleFloor(fl: FactoryFloor): void {
     const isHoveredFloor = this.activeFloorIndex === 'all' && this.hoveredFloorLevel === fl.level;
+    const gridKey = `${this.zoom.toFixed(4)}_${this.panX.toFixed(1)}_${this.panY.toFixed(1)}_${this.activeFloorIndex}_${fl.level}`;
 
-    // Floor Base Tile Grid (High performance batched Path2D rendering)
-    const evenPath = new Path2D();
-    const oddPath = new Path2D();
-    const gridLines = new Path2D();
+    // Floor Base Tile Grid (High performance cached Path2D rendering)
+    if (fl.cachedGridKey !== gridKey || !fl.cachedEvenPath || !fl.cachedOddPath || !fl.cachedGridLines) {
+      const evenPath = new Path2D();
+      const oddPath = new Path2D();
+      const gridLines = new Path2D();
 
-    for (let x = 0; x < this.gridWidth; x++) {
-      for (let y = 0; y < this.gridHeight; y++) {
-        const top = this.isoToScreen(x, y, fl.level);
-        const right = this.isoToScreen(x + 1, y, fl.level);
-        const bottom = this.isoToScreen(x + 1, y + 1, fl.level);
-        const left = this.isoToScreen(x, y + 1, fl.level);
+      for (let x = 0; x < this.gridWidth; x++) {
+        for (let y = 0; y < this.gridHeight; y++) {
+          const top = this.isoToScreen(x, y, fl.level);
+          const right = this.isoToScreen(x + 1, y, fl.level);
+          const bottom = this.isoToScreen(x + 1, y + 1, fl.level);
+          const left = this.isoToScreen(x, y + 1, fl.level);
 
-        const targetPath = (x + y) % 2 === 0 ? evenPath : oddPath;
-        targetPath.moveTo(top.x, top.y);
-        targetPath.lineTo(right.x, right.y);
-        targetPath.lineTo(bottom.x, bottom.y);
-        targetPath.lineTo(left.x, left.y);
-        targetPath.closePath();
+          const targetPath = (x + y) % 2 === 0 ? evenPath : oddPath;
+          targetPath.moveTo(top.x, top.y);
+          targetPath.lineTo(right.x, right.y);
+          targetPath.lineTo(bottom.x, bottom.y);
+          targetPath.lineTo(left.x, left.y);
+          targetPath.closePath();
 
-        gridLines.moveTo(top.x, top.y);
-        gridLines.lineTo(right.x, right.y);
-        gridLines.lineTo(bottom.x, bottom.y);
-        gridLines.lineTo(left.x, left.y);
-        gridLines.closePath();
+          gridLines.moveTo(top.x, top.y);
+          gridLines.lineTo(right.x, right.y);
+          gridLines.lineTo(bottom.x, bottom.y);
+          gridLines.lineTo(left.x, left.y);
+          gridLines.closePath();
+        }
       }
+
+      fl.cachedGridKey = gridKey;
+      fl.cachedEvenPath = evenPath;
+      fl.cachedOddPath = oddPath;
+      fl.cachedGridLines = gridLines;
     }
 
     this.ctx.fillStyle = isHoveredFloor ? '#182436' : '#121720';
-    this.ctx.fill(evenPath);
+    this.ctx.fill(fl.cachedEvenPath!);
 
     this.ctx.fillStyle = isHoveredFloor ? '#141d2c' : '#0f131a';
-    this.ctx.fill(oddPath);
+    this.ctx.fill(fl.cachedOddPath!);
 
     this.ctx.strokeStyle = isHoveredFloor ? fl.color : '#1e293b';
     this.ctx.lineWidth = isHoveredFloor ? 0.8 : 0.4;
-    this.ctx.stroke(gridLines);
+    this.ctx.stroke(fl.cachedGridLines!);
 
     // Multi-Room Architectural Glass Partitions & Zones on spacious 16x16 layout
     this.renderRoomZone(1, 1, 6, 6, fl.level, '⚡ MCP SERVER VAULT', '#38bdf8', 'rgba(56, 189, 248, 0.08)');
@@ -1011,8 +1041,6 @@ export class WorkshopCanvas {
       ctx.strokeStyle = primaryColor;
       ctx.lineWidth = 1.6 * z;
       ctx.setLineDash([4 * z, 3 * z]);
-      ctx.shadowColor = primaryColor;
-      ctx.shadowBlur = 6 * z;
 
       ctx.beginPath();
       for (let i = 0; i < points.length; i++) {
@@ -1038,8 +1066,6 @@ export class WorkshopCanvas {
 
         // Outer soft glow ring
         ctx.fillStyle = pt.color;
-        ctx.shadowColor = pt.color;
-        ctx.shadowBlur = 8 * z * pt.opacity;
         ctx.beginPath();
         ctx.ellipse(screenPos.x, screenPos.y, 4.5 * z, 2.5 * z, 0, 0, Math.PI * 2);
         ctx.fill();
@@ -1071,8 +1097,9 @@ export class WorkshopCanvas {
       ctx.save();
 
       // Glowing Trail
-      ctx.shadowColor = '#c084fc';
-      ctx.shadowBlur = 14 * z;
+      ctx.strokeStyle = 'rgba(192, 132, 252, 0.4)';
+      ctx.lineWidth = 3 * z;
+      ctx.strokeRect(curX - 11 * z, curY - 11 * z, 22 * z, 18 * z);
 
       // Report Folder Icon
       ctx.fillStyle = '#fbbf24';
@@ -1278,9 +1305,7 @@ export class WorkshopCanvas {
         const holoAngle = Date.now() * 0.003;
         ctx.save();
         ctx.strokeStyle = '#7dd3fc';
-        ctx.shadowColor = '#38bdf8';
-        ctx.shadowBlur = 10 * z;
-        ctx.lineWidth = 1 * z;
+        ctx.lineWidth = 1.2 * z;
         ctx.beginPath();
         const hx = x;
         const hy = y - 20 * z + Math.sin(holoAngle) * 2 * z;
@@ -1350,8 +1375,9 @@ export class WorkshopCanvas {
         // Active Cyber Data Aura
         if (isPulse) {
           ctx.save();
-          ctx.shadowColor = '#38bdf8';
-          ctx.shadowBlur = 14 * z;
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+          ctx.lineWidth = 3.5 * z;
+          ctx.strokeRect(x - 19.5 * z, y - 29.5 * z, 39 * z, 31 * z);
           ctx.strokeStyle = '#38bdf8';
           ctx.lineWidth = 1.5 * z;
           ctx.strokeRect(x - 18 * z, y - 28 * z, 36 * z, 28 * z);
@@ -1481,10 +1507,8 @@ export class WorkshopCanvas {
           // Glowing Aura Shockwave if active
           if (isPulsing) {
             ctx.save();
-            ctx.shadowColor = badgeColor;
-            ctx.shadowBlur = 18 * z;
             ctx.strokeStyle = badgeColor;
-            ctx.lineWidth = 2 * z;
+            ctx.lineWidth = 2.5 * z;
             ctx.stroke();
             ctx.restore();
           }
@@ -1618,9 +1642,7 @@ export class WorkshopCanvas {
           ctx.save();
           // Laser beam
           ctx.strokeStyle = '#fb7185';
-          ctx.lineWidth = 2 * z;
-          ctx.shadowColor = '#f43f5e';
-          ctx.shadowBlur = 12 * z;
+          ctx.lineWidth = 2.5 * z;
           ctx.beginPath();
           ctx.moveTo(x + 5 * z, y - 10 * z);
           ctx.lineTo(x - 6 * z, y - 14 * z);
@@ -1743,9 +1765,8 @@ export class WorkshopCanvas {
         ctx.fillRect(-2 * z, -2 * z, 4 * z, 4 * z);
 
         if (isPulse) {
-          ctx.shadowColor = '#06b6d4';
-          ctx.shadowBlur = 12 * z;
           ctx.strokeStyle = '#67e8f9';
+          ctx.lineWidth = 2 * z;
           ctx.beginPath();
           ctx.moveTo(0, 0);
           ctx.lineTo(Math.cos(dishAngle) * 25 * z, -8 * z);
@@ -1902,9 +1923,7 @@ export class WorkshopCanvas {
         ctx.save();
         const laserColor = isPulse ? '#22c55e' : '#ef4444';
         ctx.strokeStyle = laserColor;
-        ctx.lineWidth = 1.2 * z;
-        ctx.shadowColor = laserColor;
-        ctx.shadowBlur = 8 * z;
+        ctx.lineWidth = 1.5 * z;
         ctx.setLineDash([3 * z, 2 * z]);
 
         for (let b = 0; b < 3; b++) {
@@ -1985,5 +2004,32 @@ export class WorkshopCanvas {
       y - height / 2
     );
     ctx.restore();
+  }
+
+  public triggerLevelUpEffect(lvl: number, title: string): void {
+    const text = `🏆 LEVEL UP! Lv.${lvl}: ${title}`;
+    for (const fl of this.floors) {
+      for (const worker of fl.workers.values()) {
+        worker.speechBubble = {
+          text,
+          expiresAt: Date.now() + 4000,
+        };
+
+        // Golden & cyan celebratory particle fountain radiating from worker
+        for (let i = 0; i < 35; i++) {
+          this.particles.push({
+            x: worker.x + (Math.random() - 0.5) * 1.5,
+            y: worker.y + (Math.random() - 0.5) * 1.5,
+            floorLevel: fl.level,
+            vx: (Math.random() - 0.5) * 0.09,
+            vy: (Math.random() - 0.5) * 0.09 - 0.06,
+            color: i % 2 === 0 ? '#fbbf24' : '#38bdf8',
+            size: Math.random() * 3.5 + 1.5,
+            life: 1.0,
+            maxLife: 1.0,
+          });
+        }
+      }
+    }
   }
 }

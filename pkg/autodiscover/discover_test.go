@@ -88,6 +88,7 @@ func TestEngine_AutoDiscoveryAndTailing(t *testing.T) {
 
 	mb := &mockBroadcaster{}
 	engine := autodiscover.NewEngineWithWatchPaths(mb, []string{logPath})
+	engine.SetPollDelay(20 * time.Millisecond)
 
 	sessions := engine.ScanSessions()
 	if len(sessions) != 1 {

@@ -49,7 +49,7 @@ func NewEngine(broadcaster Broadcaster, customPaths []string) *Engine {
 		registry:    reg,
 		parser:      NewAntigravityParser(),
 		watchPaths:  allPaths,
-		pollDelay:   100 * time.Millisecond,
+		pollDelay:   1500 * time.Millisecond,
 	}
 }
 
@@ -60,7 +60,7 @@ func NewEngineWithWatchPaths(broadcaster Broadcaster, paths []string) *Engine {
 		registry:    providers.GlobalRegistry(),
 		parser:      NewAntigravityParser(),
 		watchPaths:  paths,
-		pollDelay:   100 * time.Millisecond,
+		pollDelay:   1500 * time.Millisecond,
 	}
 }
 
@@ -69,6 +69,13 @@ func (e *Engine) SetRegistry(reg *providers.Registry) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.registry = reg
+}
+
+// SetPollDelay configures the background poll interval.
+func (e *Engine) SetPollDelay(d time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.pollDelay = d
 }
 
 // ScanSessions inspects watch paths and returns sorted discovered sessions mapped to their respective providers.

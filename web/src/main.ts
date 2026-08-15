@@ -43,6 +43,7 @@ class App {
   private isSimRunning = true;
   private emergencyStopActive = false;
   private activeSessionId = 'global';
+  private seenEventIds = new Set<string>();
 
   // Metrics
   private stats = {
@@ -55,6 +56,13 @@ class App {
 
   private repoFolders: any[] = [];
   private saveTimer: any = null;
+  private isUIRefreshScheduled = false;
+  private pendingLoopStatus: any = null;
+  private pendingCogStatus: any = null;
+  private pendingContextStatus: any = null;
+  private pendingGoalStatus: any = null;
+  private pendingBlastStatus: any = null;
+  private pendingWaterfallStatus: any = null;
 
   constructor() {
     this.client = new VisualizerClient();
@@ -69,6 +77,7 @@ class App {
     this.loadInitialHistory();
     this.setupRPG();
     this.setupTokenomics();
+    (window as any).visualizerApp = this;
 
     window.addEventListener('beforeunload', () => {
       if (this.saveTimer) {
@@ -552,21 +561,19 @@ class App {
       if (view === 'workshop') {
         wsCont.style.display = 'block';
         grCont.style.display = 'none';
-        this.workshopCanvas.isVisible = true;
-        this.graphCanvas.isVisible = false;
+        this.workshopCanvas.setVisible(true);
+        this.graphCanvas.setVisible(false);
       } else if (view === 'graph') {
         wsCont.style.display = 'none';
         grCont.style.display = 'block';
-        this.workshopCanvas.isVisible = false;
-        this.graphCanvas.isVisible = true;
+        this.workshopCanvas.setVisible(false);
+        this.graphCanvas.setVisible(true);
       } else {
         wsCont.style.display = 'block';
         grCont.style.display = 'block';
-        this.workshopCanvas.isVisible = true;
-        this.graphCanvas.isVisible = true;
+        this.workshopCanvas.setVisible(true);
+        this.graphCanvas.setVisible(true);
       }
-      this.workshopCanvas.resize();
-      this.graphCanvas.resize();
     };
 
     btnWorkshop.addEventListener('click', () => setView('workshop'));
@@ -868,7 +875,6 @@ class App {
 
     modal.style.display = 'flex';
   }
-
   private setupSubscriptions(): void {
     const wsDot = document.getElementById('ws-dot')!;
     const wsText = document.getElementById('ws-text')!;
@@ -879,7 +885,7 @@ class App {
     });
 
     this.client.onEvent((event) => {
-      this.handleIncomingEvent(event);
+      this.handleIncomingEvent(event, this.isInitialLoading);
     });
   }
 
@@ -920,9 +926,9 @@ class App {
     for (const fl of this.workshopCanvas.floors) {
       for (const [stType, st] of fl.workstations.entries()) {
         wsObj[stType] = {
-          heatLevel: st.heatLevel,
-          temperatureC: st.temperatureC,
-          wearPct: st.wearPct,
+          heatLevel: Math.round(st.heatLevel),
+          temperatureC: Math.round(st.temperatureC),
+          wearPct: Math.round(st.wearPct),
           totalOperations: st.totalOperations,
           itemsCount: st.itemsCount,
         };
@@ -989,6 +995,14 @@ class App {
   }
 
   private handleIncomingEvent(event: VisualizerEvent, isHistory: boolean = false): void {
+    if (event.id) {
+      if (this.seenEventIds.has(event.id)) {
+        return; // Deduplicate already-received event
+      }
+      this.seenEventIds.add(event.id);
+    }
+
+    const effectiveIsHistory = isHistory || this.isInitialLoading;
     this.allEvents.push(event);
 
     // Update time slider bounds
@@ -1020,7 +1034,7 @@ class App {
     }
 
     // Handle Checkpoint Approval Prompt Modal (live only)
-    if (event.type === 'checkpoint.request' && !isHistory) {
+    if (event.type === 'checkpoint.request' && !effectiveIsHistory) {
       this.showCheckpointModal(event);
     }
 
@@ -1031,32 +1045,31 @@ class App {
     if (event.type === 'command.run' || event.type === 'command.output') this.stats.testsRun++;
     this.stats.activeAgents = Math.max(1, this.workshopCanvas.floors.reduce((acc, fl) => acc + fl.workers.size, 0));
 
-    this.rpg.handleEvent(event);
+    this.rpg.handleEvent(event, effectiveIsHistory);
     this.tokenomics.handleEvent(event);
-    this.updateHUD();
 
-    // Mission Control Analytics Dispatch
-    const loopStatus = this.loopDetector.processEvent(event);
-    const cogStatus = this.cognitiveClassifier.processEvent(event);
-    const contextStatus = this.contextSaturation.processEvent(event);
-    const goalStatus = this.goalTracker.processEvent(event);
-    const blastStatus = this.blastRadius.processEvent(event);
-    const waterfallStatus = this.waterfallTimeline.processEvent(event);
+    // Mission Control Analytics Dispatch (Calculate state)
+    this.pendingLoopStatus = this.loopDetector.processEvent(event);
+    this.pendingCogStatus = this.cognitiveClassifier.processEvent(event);
+    this.pendingContextStatus = this.contextSaturation.processEvent(event);
+    this.pendingGoalStatus = this.goalTracker.processEvent(event);
+    this.pendingBlastStatus = this.blastRadius.processEvent(event);
+    this.pendingWaterfallStatus = this.waterfallTimeline.processEvent(event);
 
-    this.cognitiveHud.update(cogStatus, loopStatus);
-    this.missionControl.update(contextStatus, goalStatus, blastStatus, waterfallStatus);
+    // Batch UI DOM updates onto single RAF cycle to prevent layout thrashing
+    this.scheduleUIRefresh();
 
-    if (!isHistory) {
+    if (!effectiveIsHistory) {
       this.scheduleAutoSaveState();
     }
 
     // If currently on live stream, process event and play procedural audio
     if (this.currentPlaybackIndex < 0) {
-      this.workshopCanvas.handleEvent(event, isHistory);
-      this.graphCanvas.handleEvent(event, isHistory);
+      this.workshopCanvas.handleEvent(event, effectiveIsHistory);
+      this.graphCanvas.handleEvent(event, effectiveIsHistory);
 
       // Web Audio Soundscape Dispatch (LIVE ONLY)
-      if (!isHistory) {
+      if (!effectiveIsHistory) {
         if (event.type === 'file.write') this.soundscape.playLaserCut();
         else if (event.type === 'agent.think') this.soundscape.playThinkClick();
         else if (event.type === 'mcp.call') this.soundscape.playPhoneRing();
@@ -1067,7 +1080,7 @@ class App {
     }
 
     // Celebrate session completion with confetti (LIVE ONLY)
-    if (event.type === 'session.end' && !isHistory) {
+    if (event.type === 'session.end' && !effectiveIsHistory) {
       confetti({
         particleCount: 80,
         spread: 70,
@@ -1100,6 +1113,34 @@ class App {
       await this.client.respondCheckpoint(cpId, 'REJECTED', 'Developer rejected operation');
       modal.style.display = 'none';
     };
+  }
+
+  private scheduleUIRefresh(): void {
+    if (this.isUIRefreshScheduled) return;
+    this.isUIRefreshScheduled = true;
+
+    requestAnimationFrame(() => {
+      this.isUIRefreshScheduled = false;
+      this.updateHUD();
+
+      if (this.pendingCogStatus && this.pendingLoopStatus) {
+        this.cognitiveHud.update(this.pendingCogStatus, this.pendingLoopStatus);
+      }
+
+      if (
+        this.pendingContextStatus &&
+        this.pendingGoalStatus &&
+        this.pendingBlastStatus &&
+        this.pendingWaterfallStatus
+      ) {
+        this.missionControl.update(
+          this.pendingContextStatus,
+          this.pendingGoalStatus,
+          this.pendingBlastStatus,
+          this.pendingWaterfallStatus
+        );
+      }
+    });
   }
 
   private updateHUD(): void {
@@ -1162,13 +1203,9 @@ class App {
       this.updateRPGStatsUI();
       if (this.isInitialLoading) return;
       this.soundscape.playLevelUp();
-      confetti({
-        particleCount: 160,
-        spread: 100,
-        origin: { y: 0.4 },
-        colors: ['#fbbf24', '#f59e0b', '#38bdf8', '#a855f7'],
-      });
-      this.showLevelUpModal(lvl, title);
+      this.workshopCanvas.triggerLevelUpEffect(lvl, title);
+      this.graphCanvas.triggerLevelUpEffect(lvl, title);
+      this.showLevelUpToast(lvl, title);
     };
 
     this.rpg.onStatsChanged = () => {
@@ -1177,30 +1214,30 @@ class App {
     };
   }
 
-  private showLevelUpModal(lvl: number, title: string): void {
-    const modal = document.getElementById('levelup-modal');
-    if (!modal) return;
-
-    const titleEl = document.getElementById('levelup-modal-title');
-    const perksEl = document.getElementById('levelup-modal-perks');
-    const ackBtn = document.getElementById('btn-levelup-ack');
-
-    if (titleEl) titleEl.textContent = `Level ${lvl}: ${title}`;
-    if (perksEl) {
-      perksEl.innerHTML = `
-        ✨ Max Mana: +75,000 MP<br />
-        ❤️ Max Stability: +25 HP<br />
-        ⚡ Next Level Requirement: ${this.rpg.stats.nextLevelXp} XP
-      `;
+  private showLevelUpToast(lvl: number, title: string): void {
+    let container = document.getElementById('levelup-toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'levelup-toast-container';
+      container.className = 'levelup-toast-container';
+      document.body.appendChild(container);
     }
 
-    modal.style.display = 'flex';
+    const toast = document.createElement('div');
+    toast.className = 'levelup-toast-item';
+    toast.innerHTML = `
+      <div class="toast-trophy">🏆</div>
+      <div class="toast-info">
+        <div class="toast-heading">LEVEL UP! <span class="toast-lvl-badge">Lv. ${lvl}</span></div>
+        <div class="toast-title">${title}</div>
+      </div>
+    `;
+    container.appendChild(toast);
 
-    if (ackBtn) {
-      ackBtn.onclick = () => {
-        modal.style.display = 'none';
-      };
-    }
+    setTimeout(() => {
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 400);
+    }, 4000);
   }
 
   private setupTokenomics(): void {
@@ -1400,6 +1437,10 @@ class App {
 }
 
 // Launch application
-window.addEventListener('DOMContentLoaded', () => {
-  new App();
-});
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', () => {
+    (window as any).visualizerApp = new App();
+  });
+} else {
+  (window as any).visualizerApp = new App();
+}

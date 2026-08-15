@@ -3,6 +3,7 @@ export class SoundscapeEngine {
   private isMuted = false;
   private volume = 0.6;
   private masterGain: GainNode | null = null;
+  private startupMuteUntil = Date.now() + 2000;
 
   constructor() {
     // AudioContext will be initialized on first user interaction to comply with browser autoplay policy
@@ -17,6 +18,9 @@ export class SoundscapeEngine {
   }
 
   private ensureContext(): AudioContext | null {
+    if (Date.now() < this.startupMuteUntil) {
+      return null;
+    }
     if (!this.ctx) {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {

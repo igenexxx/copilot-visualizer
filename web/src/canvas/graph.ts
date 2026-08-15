@@ -340,13 +340,28 @@ export class FlowGraphCanvas {
   }
 
   public start(): void {
+    if (this.animationFrameId !== null) return;
     const render = () => {
       if (this.isVisible) {
         this.draw();
+        this.animationFrameId = requestAnimationFrame(render);
+      } else {
+        this.animationFrameId = null;
       }
-      this.animationFrameId = requestAnimationFrame(render);
     };
-    this.animationFrameId = requestAnimationFrame(render);
+    if (this.isVisible) {
+      this.animationFrameId = requestAnimationFrame(render);
+    }
+  }
+
+  public setVisible(visible: boolean): void {
+    this.isVisible = visible;
+    if (visible) {
+      this.start();
+      this.resize();
+    } else {
+      this.stop();
+    }
   }
 
   public stop(): void {
@@ -492,10 +507,7 @@ export class FlowGraphCanvas {
       this.ctx.beginPath();
       this.ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       this.ctx.fillStyle = edge.color;
-      this.ctx.shadowColor = edge.color;
-      this.ctx.shadowBlur = 8;
       this.ctx.fill();
-      this.ctx.shadowBlur = 0;
     });
   }
 
@@ -509,15 +521,9 @@ export class FlowGraphCanvas {
       // Card Background
       this.ctx.fillStyle = isSelected ? '#1e293b' : '#0f172a';
       this.ctx.strokeStyle = isPulsing ? node.color : isSelected ? '#38bdf8' : '#334155';
-      this.ctx.lineWidth = isPulsing || isSelected ? 2 : 1;
-
-      if (isPulsing) {
-        this.ctx.shadowColor = node.color;
-        this.ctx.shadowBlur = 14;
-      }
+      this.ctx.lineWidth = isPulsing ? 2.5 : isSelected ? 2 : 1;
 
       this.roundRect(node.x, node.y, node.width, node.height, 8, true, true);
-      this.ctx.shadowBlur = 0;
 
       // Stage Tag / Badge
       this.ctx.fillStyle = `${node.color}22`;
@@ -628,5 +634,15 @@ export class FlowGraphCanvas {
     window.addEventListener('resize', () => {
       this.resize();
     });
+    if (this.canvas.parentElement && typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => this.resize());
+      ro.observe(this.canvas.parentElement);
+    }
+  }
+
+  public triggerLevelUpEffect(_lvl: number, _title: string): void {
+    for (const node of this.stageNodes.values()) {
+      node.pulseTime = 1.0;
+    }
   }
 }
