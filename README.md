@@ -156,10 +156,19 @@ curl -X POST http://localhost:9876/api/events \
 ```
 
 ### 3. MCP Proxy (Transparent JSON-RPC Shim)
+MCP calls are **not intercepted automatically**. To get live (not log-based) MCP telemetry, run the proxy mode explicitly by wrapping your MCP server:
+
 ```bash
-./copilot-visualizer --mcp-proxy
+# Instead of:
+node /path/to/mcp-server
+
+# Run through the proxy shim (sits on stdio between client and server):
+./copilot-visualizer --mcp-proxy -- node /path/to/mcp-server
 ```
-Wraps any MCP server toolchain to intercept tool calls and stream live factory telemetry.
+
+The proxy intercepts every JSON-RPC `tools/call` request and response in real time and streams it as factory events. No changes required in the agent or MCP client.
+
+> **Auto-Discovery** (the default mode) reads agent JSONL transcripts after the fact — MCP calls appear with a slight delay once the agent writes its step log to disk.
 
 ### 4. JSONL Log Tailer
 ```bash
