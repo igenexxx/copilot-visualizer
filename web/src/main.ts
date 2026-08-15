@@ -268,11 +268,14 @@ class App {
             </div>
           </div>
 
+          <!-- Left Viewport Dock: Schematic Skyscraper Multi-Agent Tower Widget -->
+          <div id="skyscraper-dock" class="skyscraper-dock" style="display: none;"></div>
+
           <!-- RPG Action Spells & MCP Hotbar -->
           <div id="rpg-hotbar" class="rpg-hotbar"></div>
 
-          <!-- Elevator Floor Selector Bar -->
-          <div id="floor-selector-bar" class="floor-selector-bar"></div>
+          <!-- Elevator Floor Selector Bar (Legacy fallback) -->
+          <div id="floor-selector-bar" class="floor-selector-bar" style="display: none;"></div>
 
           <!-- Time-Travel Scrubber Bar -->
           <div id="timeline-bar" class="timeline-bar">
@@ -465,7 +468,7 @@ class App {
           btnCool.style.cssText = 'background: #06b6d4; color: #000; font-weight: 700; width: 100%; margin-top: 12px; padding: 6px;';
           btnCool.textContent = '🧊 VENT STEAM & COOLDOWN (24°C)';
           btnCool.onclick = () => {
-            const flLevel = this.workshopCanvas.activeFloorIndex === 'all' ? 0 : this.workshopCanvas.activeFloorIndex;
+            const flLevel = this.workshopCanvas.activeFloorIndex;
             this.workshopCanvas.cooldownStation(data.type, flLevel);
             this.soundscape.playSteamVent();
             btnCool.textContent = '✅ MACHINE COOLED (24°C)';
@@ -505,31 +508,106 @@ class App {
   }
 
   private renderFloorSelector(): void {
-    const bar = document.getElementById('floor-selector-bar');
-    if (!bar) return;
+    const dock = document.getElementById('skyscraper-dock');
+    const bottomBar = document.getElementById('floor-selector-bar');
+    if (bottomBar) {
+      bottomBar.style.display = 'none';
+    }
+    if (!dock) return;
 
-    bar.innerHTML = '';
+    const floors = this.workshopCanvas.floors;
+    const activeIdx = this.workshopCanvas.activeFloorIndex;
 
-    // 1. Tower Overview button
-    const allBtn = document.createElement('button');
-    allBtn.className = `floor-btn ${this.workshopCanvas.activeFloorIndex === 'all' ? 'active' : ''}`;
-    allBtn.innerHTML = `<span>🏢</span><span>Tower View (${this.workshopCanvas.floors.length}F)</span>`;
-    allBtn.onclick = () => {
-      this.workshopCanvas.setFloorView('all');
-    };
-    bar.appendChild(allBtn);
+    // 1. If only 1 agent/floor, hide the skyscraper widget to keep the main view 100% clean
+    if (floors.length <= 1) {
+      dock.style.display = 'none';
+      dock.innerHTML = '';
+      return;
+    }
 
-    // 2. Individual Floor buttons
-    this.workshopCanvas.floors.forEach((fl, idx) => {
-      const flBtn = document.createElement('button');
-      flBtn.className = `floor-btn ${this.workshopCanvas.activeFloorIndex === idx ? 'active' : ''}`;
-      flBtn.style.color = fl.color;
-      flBtn.innerHTML = `<span>●</span><span>${fl.name}</span>`;
-      flBtn.onclick = () => {
+    dock.style.display = 'flex';
+
+    // 2. If > 10 agents/floors: Mega-Swarm Building Mode (Schematic Building + Counter)
+    if (floors.length > 10) {
+      let totalWorkers = 0;
+      floors.forEach((f) => { totalWorkers += f.workers.size; });
+
+      dock.innerHTML = `
+        <div class="skyscraper-megastructure-card">
+          <div class="megastructure-header">
+            <span class="megastructure-icon">🏙️</span>
+            <div class="megastructure-meta">
+              <span class="megastructure-tag">SWARM MEGASTRUCTURE</span>
+              <span class="megastructure-count">${totalWorkers} AGENTS</span>
+            </div>
+          </div>
+          <div class="megastructure-sub">${floors.length} WORKSHOP FLOORS</div>
+          <div class="megastructure-active-badge" style="border-color: ${floors[activeIdx]?.color || '#38bdf8'}">
+            <span class="active-dot" style="background: ${floors[activeIdx]?.color || '#38bdf8'}"></span>
+            <span>${floors[activeIdx]?.name || `Floor ${activeIdx + 1}`}</span>
+          </div>
+          <select id="megastructure-select" class="megastructure-select">
+            ${floors.map((fl, idx) => `<option value="${idx}" ${idx === activeIdx ? 'selected' : ''}>${fl.name} (${fl.workers.size} 👷)</option>`).join('')}
+          </select>
+        </div>
+      `;
+
+      const sel = document.getElementById('megastructure-select') as HTMLSelectElement;
+      if (sel) {
+        sel.onchange = (e) => {
+          const val = parseInt((e.target as HTMLSelectElement).value, 10);
+          this.workshopCanvas.setFloorView(val);
+        };
+      }
+      return;
+    }
+
+    // 3. If 2 to 10 agents/floors: Schematic Vertical Skyscraper Tower Stack
+    dock.innerHTML = `
+      <div class="skyscraper-tower-card">
+        <div class="skyscraper-title-row">
+          <span class="skyscraper-icon">🏢</span>
+          <span class="skyscraper-title">TOWER MATRIX</span>
+          <span class="skyscraper-badge">${floors.length} FLOORS</span>
+        </div>
+        <div class="skyscraper-floors-list" id="skyscraper-floors-list"></div>
+      </div>
+    `;
+
+    const list = document.getElementById('skyscraper-floors-list');
+    if (!list) return;
+
+    // Render floor tiers from TOP (highest floor) to BOTTOM (1F)
+    for (let idx = floors.length - 1; idx >= 0; idx--) {
+      const fl = floors[idx];
+      const isActive = idx === activeIdx;
+      const roleIcon = fl.role === 'foreman' ? '👑' : fl.role === 'tester' ? '🧪' : fl.role === 'inspector' ? '🔍' : '🔨';
+
+      const tierEl = document.createElement('button');
+      tierEl.className = `skyscraper-tier-btn ${isActive ? 'active' : ''}`;
+      tierEl.style.borderColor = isActive ? fl.color : 'rgba(51, 65, 85, 0.6)';
+      if (isActive) {
+        tierEl.style.boxShadow = `0 0 14px ${fl.color}33, inset 0 0 10px ${fl.color}22`;
+      }
+
+      tierEl.innerHTML = `
+        <div class="tier-left">
+          <span class="tier-pulse ${fl.active ? 'live' : ''}" style="background: ${fl.color}"></span>
+          <span class="tier-level" style="color: ${fl.color}">${idx + 1}F</span>
+          <span class="tier-role">${roleIcon} ${fl.role.toUpperCase()}</span>
+        </div>
+        <div class="tier-right">
+          <span class="tier-workers-count" title="${fl.workers.size} active worker(s)">👷 ${fl.workers.size}</span>
+          ${isActive ? '<span class="tier-active-arrow">▶</span>' : ''}
+        </div>
+      `;
+
+      tierEl.onclick = () => {
         this.workshopCanvas.setFloorView(idx);
       };
-      bar.appendChild(flBtn);
-    });
+
+      list.appendChild(tierEl);
+    }
   }
 
   private initAnalytics(): void {

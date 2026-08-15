@@ -57,7 +57,6 @@ export class WorkshopCanvas {
   private tileHeight = 30;
   private gridWidth = 16;
   private gridHeight = 16;
-  private floorElevationStep = 220; // vertical separation between stacked floors in tower mode
   public isVisible = true;
   private animationFrameId: number | null = null;
   public emergencyStopActive = false;
@@ -68,7 +67,9 @@ export class WorkshopCanvas {
 
   // Multi-Floor State
   public floors: FactoryFloor[] = [];
-  public activeFloorIndex: number | 'all' = 'all'; // 'all' for full tower overview, or floor index (0, 1, 2)
+  public activeFloorIndex = 0; // Index of the currently focused single floor (0, 1, 2...)
+  public lastActiveFloorLevel = 0;
+  private topFloorDebounceTimer: any = null;
   private particles: Particle[] = [];
   private elevatorCabLevel = 0;
   private elevatorTargetLevel = 0;
@@ -78,7 +79,7 @@ export class WorkshopCanvas {
   public selectedStation: StationType | null = null;
   public selectedAgent: string | null = null;
   public onSelectElement?: (type: 'station' | 'agent' | 'floor', data: any) => void;
-  public onFloorChanged?: (floorIndex: number | 'all') => void;
+  public onFloorChanged?: (floorIndex: number) => void;
 
   // Camera & Pan/Zoom
   public zoom = 0.85;
@@ -218,16 +219,12 @@ export class WorkshopCanvas {
     return newFloor;
   }
 
-  public setFloorView(floorIndex: number | 'all'): void {
+  public setFloorView(floorIndex: number): void {
+    if (floorIndex < 0 || floorIndex >= this.floors.length) return;
     this.activeFloorIndex = floorIndex;
-    if (floorIndex === 'all') {
-      this.zoom = Math.max(0.6, 0.9 - this.floors.length * 0.08);
-      this.panX = 0;
-      this.panY = (this.floors.length - 1) * 60;
-    } else {
-      this.zoom = 1.05;
-      this.panX = 0;
-      this.panY = 0;
+    if (this.topFloorDebounceTimer) {
+      clearTimeout(this.topFloorDebounceTimer);
+      this.topFloorDebounceTimer = null;
     }
     if (this.onFloorChanged) {
       this.onFloorChanged(this.activeFloorIndex);
@@ -297,8 +294,7 @@ export class WorkshopCanvas {
             this.onSelectElement('station', station);
           }
         }
-      } else if (this.activeFloorIndex === 'all' && this.hoveredFloorLevel !== null) {
-        // Clicking floor in tower mode selects that floor!
+      } else if (this.hoveredFloorLevel !== null) {
         this.setFloorView(this.hoveredFloorLevel);
       }
     });
@@ -313,17 +309,49 @@ export class WorkshopCanvas {
     this.ctx.scale(dpr, dpr);
   }
 
-  public isoToScreen(gx: number, gy: number, floorLevel: number = 0, gz: number = 0): { x: number; y: number } {
+  private onFloorActivity(floorLevel: number, isHistory: boolean): void {
+    if (this.floors.length <= 1) {
+      this.activeFloorIndex = 0;
+      if (this.onFloorChanged) this.onFloorChanged(0);
+      return;
+    }
+
+    // On initial loading or historical replay, align active floor immediately
+    if (isHistory || this.activeFloorIndex === undefined) {
+      this.activeFloorIndex = floorLevel;
+      if (this.onFloorChanged) this.onFloorChanged(floorLevel);
+      return;
+    }
+
+    if (this.activeFloorIndex === floorLevel) {
+      // Current floor is active, clear any pending switch timer
+      if (this.topFloorDebounceTimer) {
+        clearTimeout(this.topFloorDebounceTimer);
+        this.topFloorDebounceTimer = null;
+      }
+      return;
+    }
+
+    // Multi-agent floor switch: debounce 10 seconds before switching main view
+    if (!this.topFloorDebounceTimer) {
+      this.topFloorDebounceTimer = setTimeout(() => {
+        this.activeFloorIndex = floorLevel;
+        if (this.onFloorChanged) this.onFloorChanged(floorLevel);
+        this.topFloorDebounceTimer = null;
+      }, 10000);
+    }
+  }
+
+  public isoToScreen(gx: number, gy: number, _floorLevel: number = 0, gz: number = 0): { x: number; y: number } {
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
     const originX = width / 2;
-    const originY = height / 2 + (this.activeFloorIndex === 'all' ? (this.floors.length - 1) * 60 : 0);
+    const originY = height / 2;
 
-    const verticalFloorOffset = this.activeFloorIndex === 'all' ? floorLevel * this.floorElevationStep : 0;
     const gridCenterOffsetY = (this.gridWidth + this.gridHeight) * (this.tileHeight / 4);
 
     const baseScreenX = originX + (gx - gy) * (this.tileWidth / 2);
-    const baseScreenY = originY + (gx + gy) * (this.tileHeight / 2) - gridCenterOffsetY - verticalFloorOffset - gz;
+    const baseScreenY = originY + (gx + gy) * (this.tileHeight / 2) - gridCenterOffsetY - gz;
 
     return {
       x: baseScreenX * this.zoom + this.panX + (1 - this.zoom) * originX,
@@ -334,6 +362,8 @@ export class WorkshopCanvas {
   public handleEvent(evt: VisualizerEvent, isHistory: boolean = false): void {
     // 1. Determine Floor for agent
     const floor = this.getOrCreateFloorForAgent(evt.agentId || 'agent-foreman', evt.agentRole || 'crafter');
+    this.lastActiveFloorLevel = floor.level;
+    this.onFloorActivity(floor.level, isHistory);
     if (!isHistory) {
       this.elevatorTargetLevel = floor.level;
     }
@@ -524,31 +554,16 @@ export class WorkshopCanvas {
     this.hoveredStation = null;
     this.hoveredFloorLevel = null;
 
-    const visibleFloors = this.activeFloorIndex === 'all'
-      ? this.floors
-      : [this.floors[this.activeFloorIndex]].filter(Boolean);
+    const currentFloor = this.floors[this.activeFloorIndex] || this.floors[0];
+    if (!currentFloor) return;
 
-    for (const fl of visibleFloors) {
-      for (const [type, st] of fl.workstations.entries()) {
-        const pos = this.isoToScreen(st.gridX, st.gridY, fl.level, 10);
-        const dist = Math.hypot(this.mouseX - pos.x, this.mouseY - pos.y);
-        if (dist < 28 * this.zoom) {
-          this.hoveredStation = { station: type, floor: fl.level };
-          this.hoveredFloorLevel = fl.level;
-          return;
-        }
-      }
-    }
-
-    // Check floor plane hover in tower mode
-    if (this.activeFloorIndex === 'all') {
-      for (const fl of this.floors) {
-        const center = this.isoToScreen(8, 8, fl.level);
-        const dist = Math.hypot(this.mouseX - center.x, this.mouseY - center.y);
-        if (dist < 180 * this.zoom) {
-          this.hoveredFloorLevel = fl.level;
-          return;
-        }
+    for (const [type, st] of currentFloor.workstations.entries()) {
+      const pos = this.isoToScreen(st.gridX, st.gridY, currentFloor.level, 10);
+      const dist = Math.hypot(this.mouseX - pos.x, this.mouseY - pos.y);
+      if (dist < 28 * this.zoom) {
+        this.hoveredStation = { station: type, floor: currentFloor.level };
+        this.hoveredFloorLevel = currentFloor.level;
+        return;
       }
     }
   }
@@ -726,16 +741,8 @@ export class WorkshopCanvas {
     }
   }
 
-  public setActiveFloor(floorIndex: number | 'all'): void {
-    this.activeFloorIndex = floorIndex;
-    if (typeof floorIndex === 'number') {
-      this.elevatorTargetLevel = floorIndex;
-    } else {
-      this.elevatorTargetLevel = 0;
-    }
-    if (this.onFloorChanged) {
-      this.onFloorChanged(floorIndex);
-    }
+  public setActiveFloor(floorIndex: number): void {
+    this.setFloorView(floorIndex);
   }
 
   public cooldownStation(stationType: StationType, floorLevel: number = 0): void {
@@ -771,23 +778,14 @@ export class WorkshopCanvas {
 
     this.ctx.clearRect(0, 0, width, height);
 
-    const floorsToRender = this.activeFloorIndex === 'all'
-      ? this.floors
-      : [this.floors[this.activeFloorIndex]].filter(Boolean);
-
-    // 1. Draw Vertical Glass Tower Elevator Columns in overview mode
-    if (this.activeFloorIndex === 'all' && this.floors.length > 1) {
-      this.renderTowerElevatorShaft();
+    const currentFloor = this.floors[this.activeFloorIndex] || this.floors[0];
+    if (currentFloor) {
+      this.renderSingleFloor(currentFloor);
     }
 
-    // 2. Render Factory Floors (Isometric Projection)
-    for (const fl of floorsToRender) {
-      this.renderSingleFloor(fl);
-    }
-
-    // 3. Render Floating Particles across all floors
+    // 2. Render Floating Particles on active floor
     for (const p of this.particles) {
-      if (this.activeFloorIndex !== 'all' && p.floorLevel !== this.activeFloorIndex) continue;
+      if (p.floorLevel !== this.activeFloorIndex) continue;
       this.ctx.save();
       this.ctx.globalAlpha = p.life;
       this.ctx.fillStyle = p.color;
@@ -797,7 +795,7 @@ export class WorkshopCanvas {
       this.ctx.restore();
     }
 
-    // 4. Emergency Stop Red Alert Tint
+    // 3. Emergency Stop Red Alert Tint
     if (this.emergencyStopActive) {
       const flash = (Math.sin(Date.now() / 200) + 1) / 2;
       this.ctx.save();
@@ -821,53 +819,8 @@ export class WorkshopCanvas {
     }
   }
 
-  private renderTowerElevatorShaft(): void {
-    const bottomLevel = 0;
-    const topLevel = this.floors.length - 1;
-
-    // Corner pillar coordinates
-    const pTopLeft = this.isoToScreen(0, 0, topLevel);
-    const pBottomLeft = this.isoToScreen(0, 0, bottomLevel);
-    const pTopRight = this.isoToScreen(this.gridWidth - 1, 0, topLevel);
-    const pBottomRight = this.isoToScreen(this.gridWidth - 1, 0, bottomLevel);
-
-    this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)';
-    this.ctx.lineWidth = 1.5 * this.zoom;
-    this.ctx.setLineDash([6, 6]);
-
-    // Glass corner supports
-    this.ctx.beginPath();
-    this.ctx.moveTo(pBottomLeft.x, pBottomLeft.y);
-    this.ctx.lineTo(pTopLeft.x, pTopLeft.y);
-    this.ctx.moveTo(pBottomRight.x, pBottomRight.y);
-    this.ctx.lineTo(pTopRight.x, pTopRight.y);
-    this.ctx.stroke();
-
-    // Elevator Cab on right flank
-    const elevPos = this.isoToScreen(this.gridWidth - 1, 8, this.elevatorCabLevel, 0);
-    this.ctx.fillStyle = '#0284c7';
-    this.ctx.strokeStyle = '#38bdf8';
-    this.ctx.setLineDash([]);
-    this.ctx.lineWidth = 2 * this.zoom;
-
-    this.ctx.beginPath();
-    this.ctx.roundRect(elevPos.x - 12 * this.zoom, elevPos.y - 18 * this.zoom, 24 * this.zoom, 24 * this.zoom, 4 * this.zoom);
-    this.ctx.fill();
-    this.ctx.stroke();
-
-    // Elevator light
-    this.ctx.fillStyle = '#f8fafc';
-    this.ctx.font = `bold ${Math.max(7, 8 * this.zoom)}px monospace`;
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(`▲`, elevPos.x, elevPos.y - 4 * this.zoom);
-
-    this.ctx.restore();
-  }
-
   private renderSingleFloor(fl: FactoryFloor): void {
-    const isHoveredFloor = this.activeFloorIndex === 'all' && this.hoveredFloorLevel === fl.level;
-    const gridKey = `${this.zoom.toFixed(4)}_${this.panX.toFixed(1)}_${this.panY.toFixed(1)}_${this.activeFloorIndex}_${fl.level}`;
+    const gridKey = `${this.zoom.toFixed(4)}_${this.panX.toFixed(1)}_${this.panY.toFixed(1)}_${fl.level}`;
 
     // Floor Base Tile Grid (High performance cached Path2D rendering)
     if (fl.cachedGridKey !== gridKey || !fl.cachedEvenPath || !fl.cachedOddPath || !fl.cachedGridLines) {
@@ -903,14 +856,14 @@ export class WorkshopCanvas {
       fl.cachedGridLines = gridLines;
     }
 
-    this.ctx.fillStyle = isHoveredFloor ? '#182436' : '#121720';
+    this.ctx.fillStyle = '#121720';
     this.ctx.fill(fl.cachedEvenPath!);
 
-    this.ctx.fillStyle = isHoveredFloor ? '#141d2c' : '#0f131a';
+    this.ctx.fillStyle = '#0f131a';
     this.ctx.fill(fl.cachedOddPath!);
 
-    this.ctx.strokeStyle = isHoveredFloor ? fl.color : '#1e293b';
-    this.ctx.lineWidth = isHoveredFloor ? 0.8 : 0.4;
+    this.ctx.strokeStyle = '#1e293b';
+    this.ctx.lineWidth = 0.4;
     this.ctx.stroke(fl.cachedGridLines!);
 
     // Multi-Room Architectural Glass Partitions & Zones on spacious 16x16 layout
@@ -918,22 +871,22 @@ export class WorkshopCanvas {
     this.renderRoomZone(1, 10, 6, 15, fl.level, '👥 SUBAGENT GLASS OFFICE', '#a855f7', 'rgba(168, 85, 247, 0.08)');
     this.renderRoomZone(10, 1, 15, 6, fl.level, '📁 REPO TREE MODULE SHELVES', '#3b82f6', 'rgba(59, 130, 246, 0.07)');
 
-    // Floor Title Plaque in Tower Mode
+    // Floor Title Plaque (Prominently Highlighted)
     const plaquePos = this.isoToScreen(0, 8, fl.level);
     this.ctx.save();
-    this.ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    this.ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
     this.ctx.strokeStyle = fl.color;
-    this.ctx.lineWidth = 1 * this.zoom;
+    this.ctx.lineWidth = 1.6 * this.zoom;
     this.ctx.beginPath();
-    this.ctx.roundRect(plaquePos.x - 70 * this.zoom, plaquePos.y - 12 * this.zoom, 140 * this.zoom, 22 * this.zoom, 4 * this.zoom);
+    this.ctx.roundRect(plaquePos.x - 85 * this.zoom, plaquePos.y - 14 * this.zoom, 170 * this.zoom, 28 * this.zoom, 5 * this.zoom);
     this.ctx.fill();
     this.ctx.stroke();
 
-    this.ctx.font = `bold ${Math.max(8, 10 * this.zoom)}px Inter, sans-serif`;
+    this.ctx.font = `bold ${Math.max(8, 11 * this.zoom)}px Inter, sans-serif`;
     this.ctx.fillStyle = fl.color;
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
-    this.ctx.fillText(fl.name, plaquePos.x, plaquePos.y);
+    this.ctx.fillText(`★ ${fl.name}`, plaquePos.x, plaquePos.y);
     this.ctx.restore();
 
     // Render Floor Fiber Optic Cables (Photons surge smoothly only during active station calls)

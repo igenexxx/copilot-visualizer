@@ -740,19 +740,218 @@ canvas {
 }
 
 .floor-selector-bar {
+  display: none;
+}
+
+/* Vertical Schematic Skyscraper Multi-Agent Dock */
+.skyscraper-dock {
   position: absolute;
-  bottom: 130px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 125px;
+  left: 14px;
+  z-index: 20;
   display: flex;
-  gap: 6px;
-  background: rgba(17, 24, 39, 0.85);
-  backdrop-filter: blur(8px);
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.skyscraper-tower-card {
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border-color);
-  padding: 5px 10px;
-  border-radius: 9999px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  z-index: 10;
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 170px;
+  animation: toast-slide-in 0.25s ease-out;
+}
+
+.skyscraper-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+}
+
+.skyscraper-icon {
+  font-size: 14px;
+}
+
+.skyscraper-title {
+  font-size: 9px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  letter-spacing: 0.08em;
+  flex: 1;
+}
+
+.skyscraper-badge {
+  font-size: 8px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #38bdf8;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.skyscraper-floors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skyscraper-tier-btn {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.skyscraper-tier-btn:hover {
+  background: #1e293b;
+  transform: translateX(2px);
+}
+
+.skyscraper-tier-btn.active {
+  background: #182234;
+}
+
+.tier-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tier-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.tier-pulse.live {
+  box-shadow: 0 0 8px currentColor;
+}
+
+.tier-level {
+  font-size: 10px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.tier-role {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tier-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tier-workers-count {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.tier-active-arrow {
+  font-size: 9px;
+  color: #fbbf24;
+  font-weight: 800;
+}
+
+/* Mega-Swarm Building Card (>10 agents) */
+.skyscraper-megastructure-card {
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(12px);
+  border: 1.5px solid #38bdf8;
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.25), 0 8px 32px rgba(0, 0, 0, 0.6);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.megastructure-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.megastructure-icon {
+  font-size: 22px;
+}
+
+.megastructure-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.megastructure-tag {
+  font-size: 8px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.megastructure-count {
+  font-size: 12px;
+  font-weight: 800;
+  color: #38bdf8;
+  font-family: var(--font-mono);
+}
+
+.megastructure-sub {
+  font-size: 8.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.megastructure-active-badge {
+  background: #0b1120;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.megastructure-active-badge .active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.megastructure-select {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f8fafc;
+  font-size: 9px;
+  border-radius: 4px;
+  padding: 4px;
+  outline: none;
+  cursor: pointer;
 }
 
 /* Time-Travel Reel Scrubber */

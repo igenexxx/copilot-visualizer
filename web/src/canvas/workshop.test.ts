@@ -116,10 +116,13 @@ describe('WorkshopCanvas', () => {
   });
 
   it('should switch active floor level smoothly', () => {
+    workshop.getOrCreateFloorForAgent('crafter-agent', 'crafter');
+    expect(workshop.floors.length).toBe(2);
+
+    workshop.setActiveFloor(1);
+    expect(workshop.activeFloorIndex).toBe(1);
+
     workshop.setActiveFloor(0);
     expect(workshop.activeFloorIndex).toBe(0);
-
-    workshop.setActiveFloor('all');
-    expect(workshop.activeFloorIndex).toBe('all');
   });
 });
