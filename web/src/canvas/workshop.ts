@@ -49,31 +49,34 @@ export interface WorkerTrailPoint {
 export class WorkshopCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private animationFrameId: number | null = null;
-
   private tileWidth = 60;
   private tileHeight = 30;
   private gridWidth = 16;
   private gridHeight = 16;
   private floorElevationStep = 220; // vertical separation between stacked floors in tower mode
+  public isVisible = true;
+  private animationFrameId: number | null = null;
+  public emergencyStopActive = false;
 
+  // Station animations
+  private radarAngle = 0;
+  private conveyorOffset = 0;
+
+  // Multi-Floor State
   public floors: FactoryFloor[] = [];
   public activeFloorIndex: number | 'all' = 'all'; // 'all' for full tower overview, or floor index (0, 1, 2)
   private particles: Particle[] = [];
-  private flyingReports: FlyingReport[] = [];
-  private workerTrails: WorkerTrailPoint[] = [];
-
-  private conveyorOffset = 0;
-  private radarAngle = 0;
   private elevatorCabLevel = 0;
   private elevatorTargetLevel = 0;
+  private flyingReports: FlyingReport[] = [];
+  private workerTrails: WorkerTrailPoint[] = [];
 
   public selectedStation: StationType | null = null;
   public selectedAgent: string | null = null;
   public onSelectElement?: (type: 'station' | 'agent' | 'floor', data: any) => void;
   public onFloorChanged?: (floorIndex: number | 'all') => void;
 
-  // Camera Pan & Zoom
+  // Camera & Pan/Zoom
   public zoom = 0.85;
   public panX = 0;
   public panY = 0;
@@ -85,7 +88,6 @@ export class WorkshopCanvas {
   private mouseY = 0;
   private hoveredStation: { station: StationType; floor: number } | null = null;
   private hoveredFloorLevel: number | null = null;
-  public emergencyStopActive = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -546,8 +548,10 @@ export class WorkshopCanvas {
   public start(): void {
     if (this.animationFrameId !== null) return;
     const loop = () => {
-      this.update();
-      this.render();
+      if (this.isVisible) {
+        this.update();
+        this.render();
+      }
       this.animationFrameId = requestAnimationFrame(loop);
     };
     this.animationFrameId = requestAnimationFrame(loop);
@@ -842,7 +846,11 @@ export class WorkshopCanvas {
   private renderSingleFloor(fl: FactoryFloor): void {
     const isHoveredFloor = this.activeFloorIndex === 'all' && this.hoveredFloorLevel === fl.level;
 
-    // Floor Base Tile Grid
+    // Floor Base Tile Grid (High performance batched Path2D rendering)
+    const evenPath = new Path2D();
+    const oddPath = new Path2D();
+    const gridLines = new Path2D();
+
     for (let x = 0; x < this.gridWidth; x++) {
       for (let y = 0; y < this.gridHeight; y++) {
         const top = this.isoToScreen(x, y, fl.level);
@@ -850,24 +858,30 @@ export class WorkshopCanvas {
         const bottom = this.isoToScreen(x + 1, y + 1, fl.level);
         const left = this.isoToScreen(x, y + 1, fl.level);
 
-        this.ctx.beginPath();
-        this.ctx.moveTo(top.x, top.y);
-        this.ctx.lineTo(right.x, right.y);
-        this.ctx.lineTo(bottom.x, bottom.y);
-        this.ctx.lineTo(left.x, left.y);
-        this.ctx.closePath();
+        const targetPath = (x + y) % 2 === 0 ? evenPath : oddPath;
+        targetPath.moveTo(top.x, top.y);
+        targetPath.lineTo(right.x, right.y);
+        targetPath.lineTo(bottom.x, bottom.y);
+        targetPath.lineTo(left.x, left.y);
+        targetPath.closePath();
 
-        const isEven = (x + y) % 2 === 0;
-        this.ctx.fillStyle = isHoveredFloor
-          ? (isEven ? '#182436' : '#141d2c')
-          : (isEven ? '#121720' : '#0f131a');
-        this.ctx.fill();
-
-        this.ctx.strokeStyle = isHoveredFloor ? fl.color : '#1e293b';
-        this.ctx.lineWidth = isHoveredFloor ? 0.8 : 0.4;
-        this.ctx.stroke();
+        gridLines.moveTo(top.x, top.y);
+        gridLines.lineTo(right.x, right.y);
+        gridLines.lineTo(bottom.x, bottom.y);
+        gridLines.lineTo(left.x, left.y);
+        gridLines.closePath();
       }
     }
+
+    this.ctx.fillStyle = isHoveredFloor ? '#182436' : '#121720';
+    this.ctx.fill(evenPath);
+
+    this.ctx.fillStyle = isHoveredFloor ? '#141d2c' : '#0f131a';
+    this.ctx.fill(oddPath);
+
+    this.ctx.strokeStyle = isHoveredFloor ? fl.color : '#1e293b';
+    this.ctx.lineWidth = isHoveredFloor ? 0.8 : 0.4;
+    this.ctx.stroke(gridLines);
 
     // Multi-Room Architectural Glass Partitions & Zones on spacious 16x16 layout
     this.renderRoomZone(1, 1, 6, 6, fl.level, '⚡ MCP SERVER VAULT', '#38bdf8', 'rgba(56, 189, 248, 0.08)');

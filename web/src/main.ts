@@ -520,12 +520,18 @@ class App {
       if (view === 'workshop') {
         wsCont.style.display = 'block';
         grCont.style.display = 'none';
+        this.workshopCanvas.isVisible = true;
+        this.graphCanvas.isVisible = false;
       } else if (view === 'graph') {
         wsCont.style.display = 'none';
         grCont.style.display = 'block';
+        this.workshopCanvas.isVisible = false;
+        this.graphCanvas.isVisible = true;
       } else {
         wsCont.style.display = 'block';
         grCont.style.display = 'block';
+        this.workshopCanvas.isVisible = true;
+        this.graphCanvas.isVisible = true;
       }
       this.workshopCanvas.resize();
       this.graphCanvas.resize();

@@ -35,6 +35,7 @@ export interface PipelineEdge {
 export class FlowGraphCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  public isVisible = false;
   private animationFrameId: number | null = null;
 
   public stageNodes: Map<string, PipelineStageNode> = new Map();
@@ -340,7 +341,9 @@ export class FlowGraphCanvas {
 
   public start(): void {
     const render = () => {
-      this.draw();
+      if (this.isVisible) {
+        this.draw();
+      }
       this.animationFrameId = requestAnimationFrame(render);
     };
     this.animationFrameId = requestAnimationFrame(render);
