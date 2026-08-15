@@ -949,16 +949,59 @@ class App {
       });
     }
 
+    const odoCard = document.querySelector('.odometer-card');
+    if (odoCard) {
+      odoCard.addEventListener('click', () => {
+        const state = this.tokenomics.getState();
+        const breakdownObj: Record<string, any> = {};
+        Object.entries(state.modelBreakdown).forEach(([, rec]) => {
+          breakdownObj[rec.model.name] = {
+            provider: rec.model.provider,
+            inputTokens: `${rec.inputTokens.toLocaleString()} ($${rec.model.inputPerMillion}/1M)`,
+            outputTokens: `${rec.outputTokens.toLocaleString()} ($${rec.model.outputPerMillion}/1M)`,
+            cachedTokens: `${rec.cachedTokens.toLocaleString()} ($${rec.model.cachePerMillion}/1M)`,
+            subtotalUSD: `$${rec.costUSD.toFixed(5)}`,
+          };
+        });
+
+        this.renderInspector(
+          '💰 Tokenomics & Multi-Model Cost Breakdown',
+          `Total Session Cost: $${state.totalCostUSD.toFixed(4)} USD across ${Object.keys(state.modelBreakdown).length} active model(s)`,
+          {
+            activeModel: state.activeModel.name,
+            contextWindowDepth: `${state.totalContextTokens.toLocaleString()} / ${state.maxContextTokens.toLocaleString()} (${state.contextPercent.toFixed(1)}%)`,
+            totalInputTokens: state.totalInputTokens.toLocaleString(),
+            totalOutputTokens: state.totalOutputTokens.toLocaleString(),
+            totalCachedTokens: state.totalCachedTokens.toLocaleString(),
+            totalSessionCostUSD: `$${state.totalCostUSD.toFixed(5)}`,
+            perModelItemization: breakdownObj,
+          }
+        );
+      });
+    }
+
     this.tokenomics.onUpdate = (state) => {
-      // 0. Update Model Badge & Selector
+      // 0. Update Model Badge & Dynamic Dropdown
       const badgeEl = document.getElementById('odometer-agent-badge');
       if (badgeEl) {
-        badgeEl.textContent = state.currentModel.agentLabel;
-        badgeEl.style.borderColor = state.currentModel.badgeColor;
-        badgeEl.style.color = state.currentModel.badgeColor;
+        badgeEl.textContent = state.activeModel.agentLabel;
+        badgeEl.style.borderColor = state.activeModel.badgeColor;
+        badgeEl.style.color = state.activeModel.badgeColor;
       }
-      if (select && select.value !== state.currentModel.id) {
-        select.value = state.currentModel.id;
+
+      if (select) {
+        // Rebuild options if detected model list changes
+        const existingCount = select.options.length;
+        if (existingCount !== state.detectedModelsList.length) {
+          select.innerHTML = '';
+          state.detectedModelsList.forEach((m) => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.provider}: ${m.name}`;
+            select.appendChild(opt);
+          });
+        }
+        select.value = state.activeModel.id;
       }
 
       // 1. Update Silo Tank Fill & Depth
@@ -973,7 +1016,7 @@ class App {
       }
 
       if (depthEl) {
-        const currK = (state.contextTokens / 1000).toFixed(1);
+        const currK = (state.totalContextTokens / 1000).toFixed(1);
         const maxK = state.maxContextTokens >= 1_000_000 
           ? `${(state.maxContextTokens / 1_000_000).toFixed(1)}M` 
           : `${(state.maxContextTokens / 1000).toFixed(0)}k`;
@@ -993,9 +1036,9 @@ class App {
       if (odoVal) {
         odoVal.textContent = state.totalCostUSD.toFixed(4);
       }
-      if (odoIn) odoIn.textContent = `In: ${(state.inputTokens / 1000).toFixed(1)}k`;
-      if (odoOut) odoOut.textContent = `Out: ${(state.outputTokens / 1000).toFixed(1)}k`;
-      if (odoCache) odoCache.textContent = `Cache: ${(state.cachedTokens / 1000).toFixed(1)}k`;
+      if (odoIn) odoIn.textContent = `In: ${(state.totalInputTokens / 1000).toFixed(1)}k`;
+      if (odoOut) odoOut.textContent = `Out: ${(state.totalOutputTokens / 1000).toFixed(1)}k`;
+      if (odoCache) odoCache.textContent = `Cache: ${(state.totalCachedTokens / 1000).toFixed(1)}k`;
     };
   }
 

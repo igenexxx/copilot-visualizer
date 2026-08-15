@@ -173,6 +173,18 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 			evtType = events.TypeSubagentDelegate
 			title = "Summoning Subagent Specialist"
 			summary = "Delegating subtask to child agent"
+			if subagents, ok := args["Subagents"].([]any); ok && len(subagents) > 0 {
+				if firstSub, ok := subagents[0].(map[string]any); ok {
+					subRole, _ := firstSub["Role"].(string)
+					subModel, _ := firstSub["Model"].(string)
+					if subRole != "" {
+						title = fmt.Sprintf("Summoning: %s", subRole)
+					}
+					if subModel != "" {
+						summary = fmt.Sprintf("Spawning %s subagent with model %s", subRole, subModel)
+					}
+				}
+			}
 		}
 
 		evt := events.NewEvent(evtID, sessionID, evtType, "agent-foreman", title).
@@ -181,6 +193,8 @@ func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event
 			WithSummary(summary).
 			WithPayload("tool", name).
 			WithPayload("args", args).
+			WithPayload("detectedSource", "antigravity").
+			WithPayload("detectedModel", "gemini-2.5-pro").
 			WithPayload("stepIndex", entry.StepIndex)
 
 		res = append(res, evt)
