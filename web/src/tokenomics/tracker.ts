@@ -333,4 +333,46 @@ export class TokenomicsTracker {
       activeSource: this.activeSource,
     };
   }
+
+  public exportState(): any {
+    const modelsObj: Record<string, any> = {};
+    this.detectedModels.forEach((rec, key) => {
+      modelsObj[key] = {
+        inputTokens: rec.inputTokens,
+        outputTokens: rec.outputTokens,
+        cacheTokens: rec.cachedTokens,
+        costUsd: rec.costUSD,
+      };
+    });
+
+    return {
+      totalCostUsd: this.totalCostUSD,
+      totalInputTokens: this.totalInputTokens,
+      totalOutputTokens: this.totalOutputTokens,
+      totalCacheTokens: this.totalCachedTokens,
+      activeModels: modelsObj,
+    };
+  }
+
+  public loadState(data: any): void {
+    if (!data) return;
+    if (typeof data.totalCostUsd === 'number') this.totalCostUSD = data.totalCostUsd;
+    if (typeof data.totalInputTokens === 'number') this.totalInputTokens = data.totalInputTokens;
+    if (typeof data.totalOutputTokens === 'number') this.totalOutputTokens = data.totalOutputTokens;
+    if (typeof data.totalCacheTokens === 'number') this.totalCachedTokens = data.totalCacheTokens;
+
+    if (data.activeModels && typeof data.activeModels === 'object') {
+      Object.entries(data.activeModels).forEach(([mId, mData]: [string, any]) => {
+        const pricing = ALL_PRICING_MODELS[mId] || ALL_PRICING_MODELS['gemini-3.7-flash'];
+        this.detectedModels.set(mId, {
+          model: pricing,
+          inputTokens: mData.inputTokens || 0,
+          outputTokens: mData.outputTokens || 0,
+          cachedTokens: mData.cacheTokens || 0,
+          costUSD: mData.costUsd || 0,
+        });
+      });
+    }
+    this.recompute();
+  }
 }

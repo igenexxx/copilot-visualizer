@@ -12,6 +12,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/repotree"
+	"github.com/zhenya/copilot-visualizer/pkg/sessionstore"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
 )
 
@@ -22,6 +23,7 @@ type Server struct {
 	engine       *autodiscover.Engine
 	intervention *intervention.Manager
 	recorder     *recorder.Recorder
+	sessionStore *sessionstore.Store
 	mux          *http.ServeMux
 	staticFS     fs.FS
 }
@@ -33,6 +35,7 @@ func NewServer(
 	engine *autodiscover.Engine,
 	interv *intervention.Manager,
 	rec *recorder.Recorder,
+	store *sessionstore.Store,
 	staticFS fs.FS,
 ) *Server {
 	s := &Server{
@@ -41,6 +44,7 @@ func NewServer(
 		engine:       engine,
 		intervention: interv,
 		recorder:     rec,
+		sessionStore: store,
 		mux:          http.NewServeMux(),
 		staticFS:     staticFS,
 	}
@@ -54,6 +58,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/history", s.handleHistory)
 	s.mux.HandleFunc("/api/events", s.handleIngestEvent)
 	s.mux.HandleFunc("/api/sessions", s.handleSessions)
+	s.mux.HandleFunc("/api/sessions/state", s.handleSessionState)
 	s.mux.HandleFunc("/api/simulator/start", s.handleSimStart)
 	s.mux.HandleFunc("/api/simulator/stop", s.handleSimStop)
 	s.mux.HandleFunc("/api/simulator/speed", s.handleSimSpeed)
@@ -392,4 +397,47 @@ func (s *Server) handleRepoTree(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(folders)
 }
+
+func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
+	if s.sessionStore == nil {
+		http.Error(w, "Session store not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodGet {
+		sessionID := r.URL.Query().Get("id")
+		if sessionID == "" {
+			sessionID = "global"
+		}
+
+		st, err := s.sessionStore.GetState(sessionID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(st)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var st sessionstore.SessionState
+		if err := json.NewDecoder(r.Body).Decode(&st); err != nil {
+			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+
+		if err := s.sessionStore.SaveState(&st); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "saved", "sessionId": st.SessionID})
+		return
+	}
+
+	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+}
+
 

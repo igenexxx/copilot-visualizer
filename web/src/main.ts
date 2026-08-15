@@ -35,6 +35,7 @@ class App {
   };
 
   private repoFolders: any[] = [];
+  private saveTimer: any = null;
 
   constructor() {
     this.client = new VisualizerClient();
@@ -831,8 +832,6 @@ class App {
   private async loadInitialHistory(): Promise<void> {
     this.tokenomics.resetSession('gemini-3.7-flash');
     this.repoFolders = await this.client.fetchRepoTree();
-    const history = await this.client.fetchHistory();
-    history.forEach((evt) => this.handleIncomingEvent(evt));
 
     const sessions = await this.client.fetchSessions();
     if (sessions && sessions.length > 0) {
@@ -843,7 +842,77 @@ class App {
       if (sessEl) {
         sessEl.textContent = `${active.source.toUpperCase()}: ${active.id.slice(0, 10)}`;
       }
+      await this.restoreSessionState(active.id);
     }
+
+    const history = await this.client.fetchHistory();
+    history.forEach((evt) => this.handleIncomingEvent(evt));
+  }
+
+  private exportWorkstationsState(): Record<string, any> {
+    const wsObj: Record<string, any> = {};
+    for (const fl of this.workshopCanvas.floors) {
+      for (const [stType, st] of fl.workstations.entries()) {
+        wsObj[stType] = {
+          heatLevel: st.heatLevel,
+          temperatureC: st.temperatureC,
+          wearPct: st.wearPct,
+          totalOperations: st.totalOperations,
+          itemsCount: st.itemsCount,
+        };
+      }
+    }
+    return wsObj;
+  }
+
+  private scheduleAutoSaveState(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+    }
+    this.saveTimer = setTimeout(async () => {
+      const statePayload = {
+        sessionId: this.activeSessionId,
+        source: this.tokenomics.activeSource || 'antigravity',
+        rpg: this.rpg.exportState(),
+        tokenomics: this.tokenomics.exportState(),
+        workstations: this.exportWorkstationsState(),
+        metrics: this.stats,
+      };
+      await this.client.saveSessionState(statePayload);
+    }, 1200);
+  }
+
+  private async restoreSessionState(sessionId: string): Promise<void> {
+    const saved = await this.client.fetchSessionState(sessionId);
+    if (!saved) return;
+
+    if (saved.rpg) {
+      this.rpg.loadState(saved.rpg);
+    }
+    if (saved.tokenomics) {
+      this.tokenomics.loadState(saved.tokenomics);
+    }
+    if (saved.metrics) {
+      if (typeof saved.metrics.totalEvents === 'number') this.stats.totalEvents = saved.metrics.totalEvents;
+      if (typeof saved.metrics.filesWritten === 'number') this.stats.filesWritten = saved.metrics.filesWritten;
+      if (typeof saved.metrics.mcpCalls === 'number') this.stats.mcpCalls = saved.metrics.mcpCalls;
+      if (typeof saved.metrics.testsRun === 'number') this.stats.testsRun = saved.metrics.testsRun;
+    }
+    if (saved.workstations) {
+      for (const fl of this.workshopCanvas.floors) {
+        for (const [stType, st] of fl.workstations.entries()) {
+          const wData = saved.workstations[stType];
+          if (wData) {
+            if (typeof wData.heatLevel === 'number') st.heatLevel = wData.heatLevel;
+            if (typeof wData.temperatureC === 'number') st.temperatureC = wData.temperatureC;
+            if (typeof wData.wearPct === 'number') st.wearPct = wData.wearPct;
+            if (typeof wData.totalOperations === 'number') st.totalOperations = wData.totalOperations;
+            if (typeof wData.itemsCount === 'number') st.itemsCount = wData.itemsCount;
+          }
+        }
+      }
+    }
+    this.updateHUD();
   }
 
   private handleIncomingEvent(event: VisualizerEvent): void {
@@ -860,12 +929,13 @@ class App {
       }
     }
 
-    if (event.sessionId && event.sessionId !== 'global') {
+    if (event.sessionId && event.sessionId !== 'global' && event.sessionId !== this.activeSessionId) {
       this.activeSessionId = event.sessionId;
       const sessEl = document.getElementById('session-text');
       if (sessEl) {
         sessEl.textContent = `LIVE: ${event.sessionId.slice(0, 12)}`;
       }
+      this.restoreSessionState(event.sessionId);
     }
 
     // Handle Emergency Stop event
@@ -891,6 +961,7 @@ class App {
     this.rpg.handleEvent(event);
     this.tokenomics.handleEvent(event);
     this.updateHUD();
+    this.scheduleAutoSaveState();
 
     // If currently on live stream, process event and play procedural audio
     if (this.currentPlaybackIndex < 0) {

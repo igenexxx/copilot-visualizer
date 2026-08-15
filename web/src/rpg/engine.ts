@@ -213,4 +213,30 @@ export class RPGEngine {
       this.onLevelUp(this.stats.level, this.stats.title);
     }
   }
+
+  public exportState(): any {
+    return {
+      level: this.stats.level,
+      title: this.stats.title,
+      exp: this.stats.xp,
+      nextLevelExp: this.stats.nextLevelXp,
+      hp: this.stats.hp,
+      maxHp: this.stats.maxHp,
+      mp: this.stats.mp,
+      maxMp: this.stats.maxMp,
+      unlockedSkills: this.skills.filter(s => s.active).map(s => s.id),
+    };
+  }
+
+  public loadState(data: any): void {
+    if (!data) return;
+    if (typeof data.level === 'number') this.stats.level = data.level;
+    if (typeof data.title === 'string') this.stats.title = data.title;
+    if (typeof data.exp === 'number') this.stats.xp = data.exp;
+    if (typeof data.nextLevelExp === 'number') this.stats.nextLevelXp = data.nextLevelExp;
+    if (typeof data.hp === 'number') this.stats.hp = data.hp;
+    if (typeof data.maxHp === 'number') this.stats.maxHp = data.maxHp;
+    if (typeof data.mp === 'number') this.stats.mp = data.mp;
+    if (typeof data.maxMp === 'number') this.stats.maxMp = data.maxMp;
+  }
 }

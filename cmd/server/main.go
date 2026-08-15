@@ -18,6 +18,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/mcpproxy"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
+	"github.com/zhenya/copilot-visualizer/pkg/sessionstore"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
 	"github.com/zhenya/copilot-visualizer/pkg/tailer"
 	"github.com/zhenya/copilot-visualizer/web"
@@ -38,6 +39,11 @@ func main() {
 	rec, err := recorder.New(".tapes")
 	if err != nil {
 		log.Printf("Warning: failed to initialize tape recorder: %v", err)
+	}
+
+	sessionStore, err := sessionstore.New("")
+	if err != nil {
+		log.Printf("Warning: failed to initialize session store: %v", err)
 	}
 
 	// Initialize Auto-Discovery Engine
@@ -85,7 +91,7 @@ func main() {
 		staticFS = embeddedFS
 	}
 
-	srvHandler := server.NewServer(eventHub, sim, engine, intervMgr, rec, staticFS)
+	srvHandler := server.NewServer(eventHub, sim, engine, intervMgr, rec, sessionStore, staticFS)
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
 		Handler:      srvHandler,
@@ -110,6 +116,9 @@ func main() {
 	engine.StopWatcher()
 	sim.Stop()
 	eventHub.Close()
+	if sessionStore != nil {
+		_ = sessionStore.Close()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

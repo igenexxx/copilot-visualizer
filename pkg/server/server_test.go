@@ -15,26 +15,31 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
+	"github.com/zhenya/copilot-visualizer/pkg/sessionstore"
 	"github.com/zhenya/copilot-visualizer/pkg/simulator"
 )
 
-func setupTestServer(t *testing.T) (*server.Server, *hub.Hub, *simulator.Simulator, *intervention.Manager, *recorder.Recorder) {
+func setupTestServer(t *testing.T) (*server.Server, *hub.Hub, *simulator.Simulator, *intervention.Manager, *recorder.Recorder, *sessionstore.Store) {
 	tempDir := t.TempDir()
 	h := hub.NewHub(50)
 	sim := simulator.New(h)
 	eng := autodiscover.NewEngineWithWatchPaths(h, nil)
 	interv := intervention.NewManager(h)
 	rec, _ := recorder.New(tempDir)
-	srv := server.NewServer(h, sim, eng, interv, rec, nil)
+	store, _ := sessionstore.New(tempDir)
+	srv := server.NewServer(h, sim, eng, interv, rec, store, nil)
 	t.Cleanup(func() {
 		h.Close()
 		sim.Stop()
+		if store != nil {
+			_ = store.Close()
+		}
 	})
-	return srv, h, sim, interv, rec
+	return srv, h, sim, interv, rec, store
 }
 
 func TestServer_RESTEndpoints(t *testing.T) {
-	srv, h, sim, interv, rec := setupTestServer(t)
+	srv, h, sim, interv, rec, _ := setupTestServer(t)
 
 	// 1. Test GET /api/status
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
@@ -199,7 +204,7 @@ func TestServer_StaticFileServing(t *testing.T) {
 	defer h.Close()
 	defer sim.Stop()
 
-	srv := server.NewServer(h, sim, nil, nil, nil, os.DirFS(tmpDir))
+	srv := server.NewServer(h, sim, nil, nil, nil, nil, os.DirFS(tmpDir))
 
 	req := httptest.NewRequest(http.MethodGet, "/asset.txt", nil)
 	rec := httptest.NewRecorder()
@@ -214,7 +219,7 @@ func TestServer_StaticFileServing(t *testing.T) {
 }
 
 func TestServer_RepoTree(t *testing.T) {
-	srv, _, _, _, _ := setupTestServer(t)
+	srv, _, _, _, _, _ := setupTestServer(t)
 
 	// 1. Valid GET
 	req := httptest.NewRequest(http.MethodGet, "/api/repo-tree", nil)
@@ -238,4 +243,47 @@ func TestServer_RepoTree(t *testing.T) {
 		t.Fatalf("expected 405 Method Not Allowed, got %d", postRec.Code)
 	}
 }
+
+func TestServer_SessionState(t *testing.T) {
+	srv, _, _, _, _, store := setupTestServer(t)
+
+	// 1. GET initial state
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/state?id=sess-test-1", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 for GET state, got %d", rec.Code)
+	}
+
+	var st sessionstore.SessionState
+	if err := json.NewDecoder(rec.Body).Decode(&st); err != nil {
+		t.Fatalf("failed to decode session state: %v", err)
+	}
+	if st.SessionID != "sess-test-1" || st.RPG.Level != 1 {
+		t.Errorf("unexpected initial state: %+v", st)
+	}
+
+	// 2. POST updated state
+	st.RPG.Level = 4
+	st.RPG.Exp = 620
+	st.Tokenomics.TotalCostUSD = 0.088
+	body, _ := json.Marshal(st)
+
+	postReq := httptest.NewRequest(http.MethodPost, "/api/sessions/state", bytes.NewReader(body))
+	postRec := httptest.NewRecorder()
+	srv.ServeHTTP(postRec, postReq)
+
+	if postRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on POST state, got %d", postRec.Code)
+	}
+
+	// 3. Flush and verify persistence in store
+	_ = store.FlushAll()
+	persisted, err := store.GetState("sess-test-1")
+	if err != nil || persisted.RPG.Level != 4 {
+		t.Errorf("expected level 4 persisted, got %v / err: %v", persisted, err)
+	}
+}
+
 

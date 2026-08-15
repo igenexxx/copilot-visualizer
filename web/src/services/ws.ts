@@ -127,6 +127,34 @@ export class VisualizerClient {
     return [];
   }
 
+  public async fetchSessionState(sessionId: string): Promise<any | null> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/sessions/state?id=${encodeURIComponent(sessionId)}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed to fetch session state:', e);
+    }
+    return null;
+  }
+
+  public async saveSessionState(state: any): Promise<boolean> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/sessions/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state),
+      });
+      return res.ok;
+    } catch (e) {
+      console.warn('Failed to save session state:', e);
+      return false;
+    }
+  }
+
   public async toggleEmergencyStop(active: boolean, reason?: string): Promise<void> {
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     await fetch(`${host}/api/intervention/emergency-stop`, {
