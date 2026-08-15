@@ -44,10 +44,19 @@ tasks:
     desc: Build entire project (frontend + embedded Go binary)
     deps: [build:go]
 
-  test:
-    desc: Run adversarial unit tests with race detector and coverage
+  test:web:
+    desc: Run frontend unit test suite with Vitest
+    cmds:
+      - npm --prefix web test
+
+  test:go:
+    desc: Run Go adversarial unit tests with race detector and coverage
     cmds:
       - go test ./... -v -race -cover
+
+  test:
+    desc: Run both Go backend and Web frontend test suites
+    deps: [test:go, test:web]
 
   test:coverage:
     desc: Generate HTML test coverage report

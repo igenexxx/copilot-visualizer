@@ -174,6 +174,31 @@ export class TokenomicsTracker {
   public totalCostUSD = 0.0;
   public activeSource = 'antigravity';
 
+  public get activeModelId(): string {
+    return this.activeModel.id;
+  }
+
+  public get meters() {
+    return {
+      inputTokens: this.totalInputTokens,
+      outputTokens: this.totalOutputTokens,
+      totalTokens: this.totalInputTokens + this.totalOutputTokens,
+      totalCostUSD: this.totalCostUSD,
+    };
+  }
+
+  public getUsedModels(): ModelPricing[] {
+    const list: ModelPricing[] = [];
+    this.detectedModels.forEach((rec) => {
+      list.push(rec.model);
+    });
+    return list;
+  }
+
+  public processEvent(evt: VisualizerEvent): void {
+    this.handleEvent(evt);
+  }
+
   public onUpdate?: (state: TokenomicsState) => void;
 
   constructor() {
@@ -260,25 +285,27 @@ export class TokenomicsTracker {
     const summaryChars = (evt.summary || '').length;
     const totalChars = payloadChars + titleChars + summaryChars;
 
-    let inTokens = 0;
-    let outTokens = 0;
-    let cacheTokens = 0;
+    let inTokens = typeof evt.payload?.inputTokens === 'number' ? evt.payload.inputTokens : 0;
+    let outTokens = typeof evt.payload?.outputTokens === 'number' ? evt.payload.outputTokens : 0;
+    let cacheTokens = typeof evt.payload?.cacheTokens === 'number' ? evt.payload.cacheTokens : 0;
 
-    if (evt.type === 'tool.call' || evt.type === 'file.read' || evt.type === 'mcp.call') {
-      inTokens = Math.max(180, Math.round(totalChars / 3.8));
-      outTokens = 85;
-      cacheTokens = Math.round(inTokens * 0.4);
-    } else if (evt.type === 'file.write' || evt.type === 'command.run') {
-      inTokens = Math.max(350, Math.round(totalChars / 3.8));
-      outTokens = Math.max(120, Math.round(payloadChars / 4.0));
-      cacheTokens = Math.round(inTokens * 0.3);
-    } else if (evt.type === 'agent.think') {
-      inTokens = 450;
-      outTokens = Math.max(90, Math.round(totalChars / 3.8));
-      cacheTokens = 200;
-    } else {
-      inTokens = Math.max(100, Math.round(totalChars / 4.0));
-      outTokens = 40;
+    if (!inTokens && !outTokens) {
+      if (evt.type === 'tool.call' || evt.type === 'file.read' || evt.type === 'mcp.call') {
+        inTokens = Math.max(180, Math.round(totalChars / 3.8));
+        outTokens = 85;
+        cacheTokens = Math.round(inTokens * 0.4);
+      } else if (evt.type === 'file.write' || evt.type === 'command.run') {
+        inTokens = Math.max(350, Math.round(totalChars / 3.8));
+        outTokens = Math.max(120, Math.round(payloadChars / 4.0));
+        cacheTokens = Math.round(inTokens * 0.3);
+      } else if (evt.type === 'agent.think') {
+        inTokens = 450;
+        outTokens = Math.max(90, Math.round(totalChars / 3.8));
+        cacheTokens = 200;
+      } else {
+        inTokens = Math.max(100, Math.round(totalChars / 4.0));
+        outTokens = 40;
+      }
     }
 
     rec.inputTokens += inTokens;
@@ -346,16 +373,22 @@ export class TokenomicsTracker {
     });
 
     return {
+      activeModelId: this.activeModel.id,
       totalCostUsd: this.totalCostUSD,
       totalInputTokens: this.totalInputTokens,
       totalOutputTokens: this.totalOutputTokens,
       totalCacheTokens: this.totalCachedTokens,
+      meters: this.meters,
       activeModels: modelsObj,
     };
   }
 
   public loadState(data: any): void {
     if (!data) return;
+    if (data.activeModelId && ALL_PRICING_MODELS[data.activeModelId]) {
+      this.activeModel = ALL_PRICING_MODELS[data.activeModelId];
+      this.activeSource = this.activeModel.source;
+    }
     if (typeof data.totalCostUsd === 'number') this.totalCostUSD = data.totalCostUsd;
     if (typeof data.totalInputTokens === 'number') this.totalInputTokens = data.totalInputTokens;
     if (typeof data.totalOutputTokens === 'number') this.totalOutputTokens = data.totalOutputTokens;
@@ -374,5 +407,6 @@ export class TokenomicsTracker {
       });
     }
     this.recompute();
+    if (typeof data.totalCostUsd === 'number') this.totalCostUSD = data.totalCostUsd;
   }
 }

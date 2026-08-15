@@ -118,6 +118,9 @@ export class RPGEngine {
 
   public onLevelUp?: (newLevel: number, title: string) => void;
   public onStatsChanged?: (stats: RPGStats) => void;
+  public processEvent(evt: VisualizerEvent): { skillId?: string; xpGained: number; manaSpent: number } {
+    return this.handleEvent(evt);
+  }
 
   public handleEvent(evt: VisualizerEvent): { skillId?: string; xpGained: number; manaSpent: number } {
     let triggeredSkillId: string | undefined;
@@ -219,24 +222,34 @@ export class RPGEngine {
       level: this.stats.level,
       title: this.stats.title,
       exp: this.stats.xp,
+      xp: this.stats.xp,
       nextLevelExp: this.stats.nextLevelXp,
+      nextLevelXp: this.stats.nextLevelXp,
       hp: this.stats.hp,
       maxHp: this.stats.maxHp,
       mp: this.stats.mp,
       maxMp: this.stats.maxMp,
+      totalTokensBurned: this.stats.totalTokensBurned,
+      spellsCast: this.stats.spellsCast,
+      stats: { ...this.stats },
       unlockedSkills: this.skills.filter(s => s.active).map(s => s.id),
     };
   }
 
   public loadState(data: any): void {
     if (!data) return;
-    if (typeof data.level === 'number') this.stats.level = data.level;
-    if (typeof data.title === 'string') this.stats.title = data.title;
-    if (typeof data.exp === 'number') this.stats.xp = data.exp;
-    if (typeof data.nextLevelExp === 'number') this.stats.nextLevelXp = data.nextLevelExp;
-    if (typeof data.hp === 'number') this.stats.hp = data.hp;
-    if (typeof data.maxHp === 'number') this.stats.maxHp = data.maxHp;
-    if (typeof data.mp === 'number') this.stats.mp = data.mp;
-    if (typeof data.maxMp === 'number') this.stats.maxMp = data.maxMp;
+    const s = data.stats || data;
+    if (typeof s.level === 'number') this.stats.level = s.level;
+    if (typeof s.title === 'string') this.stats.title = s.title;
+    if (typeof s.exp === 'number') this.stats.xp = s.exp;
+    if (typeof s.xp === 'number') this.stats.xp = s.xp;
+    if (typeof s.nextLevelExp === 'number') this.stats.nextLevelXp = s.nextLevelExp;
+    if (typeof s.nextLevelXp === 'number') this.stats.nextLevelXp = s.nextLevelXp;
+    if (typeof s.hp === 'number') this.stats.hp = s.hp;
+    if (typeof s.maxHp === 'number') this.stats.maxHp = s.maxHp;
+    if (typeof s.mp === 'number') this.stats.mp = s.mp;
+    if (typeof s.maxMp === 'number') this.stats.maxMp = s.maxMp;
+    if (typeof s.totalTokensBurned === 'number') this.stats.totalTokensBurned = s.totalTokensBurned;
+    if (typeof s.spellsCast === 'number') this.stats.spellsCast = s.spellsCast;
   }
 }

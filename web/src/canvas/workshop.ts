@@ -664,8 +664,36 @@ export class WorkshopCanvas {
       }
     }
 
-    this.conveyorOffset = (this.conveyorOffset + 0.04) % 1;
-    this.radarAngle += 0.05;
+    // 6. Mechanical station animations (non-intrusive: only animate when actively in use!)
+    let isRadarActive = false;
+    let isConveyorActive = false;
+    for (const fl of this.floors) {
+      if ((fl.workstations.get('search_radar')?.pulseTime || 0) > 0.05) isRadarActive = true;
+      if ((fl.workstations.get('conveyor')?.pulseTime || 0) > 0.05) isConveyorActive = true;
+    }
+
+    if (isRadarActive) {
+      this.radarAngle += 0.035;
+    } else {
+      // Gentle resting micro-oscillation when idle
+      this.radarAngle = Math.sin(Date.now() * 0.0006) * 0.25;
+    }
+
+    if (isConveyorActive) {
+      this.conveyorOffset = (this.conveyorOffset + 0.015) % 1;
+    }
+  }
+
+  public setActiveFloor(floorIndex: number | 'all'): void {
+    this.activeFloorIndex = floorIndex;
+    if (typeof floorIndex === 'number') {
+      this.elevatorTargetLevel = floorIndex;
+    } else {
+      this.elevatorTargetLevel = 0;
+    }
+    if (this.onFloorChanged) {
+      this.onFloorChanged(floorIndex);
+    }
   }
 
   public cooldownStation(stationType: StationType, floorLevel: number = 0): void {
@@ -710,12 +738,12 @@ export class WorkshopCanvas {
       this.renderTowerElevatorShaft();
     }
 
-    // 2. Render Each Floor Plane (bottom to top)
+    // 2. Render Factory Floors (Isometric Projection)
     for (const fl of floorsToRender) {
       this.renderSingleFloor(fl);
     }
 
-    // 3. Render Particles
+    // 3. Render Floating Particles across all floors
     for (const p of this.particles) {
       if (this.activeFloorIndex !== 'all' && p.floorLevel !== this.activeFloorIndex) continue;
       this.ctx.save();
@@ -848,7 +876,7 @@ export class WorkshopCanvas {
     this.ctx.fillText(fl.name, plaquePos.x, plaquePos.y);
     this.ctx.restore();
 
-    // Render Floor Fiber Optic Cables (Photons surge only during active station calls)
+    // Render Floor Fiber Optic Cables (Photons surge smoothly only during active station calls)
     this.renderFloorCables(fl);
 
     // Render Worker Motion Trails / Footstep Trace on floor
@@ -894,23 +922,33 @@ export class WorkshopCanvas {
       ctx.stroke();
 
       // 2. Glowing fiber core
-      ctx.strokeStyle = conn.active ? conn.color : `${conn.color}33`;
-      ctx.lineWidth = (conn.active ? 2.0 : 0.8) * z;
+      ctx.strokeStyle = conn.active ? conn.color : `${conn.color}22`;
+      ctx.lineWidth = (conn.active ? 1.8 : 0.6) * z;
       ctx.stroke();
 
-      // 3. Flowing light photons ONLY during active station calls/pulses
+      // 3. Flowing light photons ONLY during active station calls (smooth relaxed velocity)
       if (conn.active) {
-        const activeTime = (Date.now() * 0.003) % 1.0;
-        for (let p = 0; p < 4; p++) {
-          const t = (activeTime + p * 0.25) % 1.0;
+        const activeTime = (Date.now() * 0.0009) % 1.0;
+        for (let p = 0; p < 3; p++) {
+          const t = (activeTime + p * 0.33) % 1.0;
           const px = centerPos.x + (destPos.x - centerPos.x) * t;
           const py = centerPos.y + (destPos.y - centerPos.y) * t;
 
-          ctx.fillStyle = '#ffffff';
-          ctx.shadowColor = conn.color;
-          ctx.shadowBlur = 12 * z;
+          // Soft radiant comet glow
+          const cometGrad = ctx.createRadialGradient(px, py, 0.5 * z, px, py, 5 * z);
+          cometGrad.addColorStop(0, '#ffffff');
+          cometGrad.addColorStop(0.35, conn.color);
+          cometGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+          ctx.fillStyle = cometGrad;
           ctx.beginPath();
-          ctx.arc(px, py, 2.5 * z, 0, Math.PI * 2);
+          ctx.arc(px, py, 4.5 * z, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Bright laser core
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(px, py, 1.5 * z, 0, Math.PI * 2);
           ctx.fill();
         }
       }
