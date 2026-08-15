@@ -1,560 +1,349 @@
 import type { VisualizerEvent } from '../types';
-import type { HullResult, WorkerNodeData } from '../workers/layout.worker';
 
-export type SemanticNodeType =
-  | 'goal'
-  | 'agent'
-  | 'file'
-  | 'service'
-  | 'test_suite'
-  | 'checkpoint'
-  | 'deliverable';
-
-export type GraphFilterMode = 'all' | 'files' | 'agents' | 'services';
-
-export interface SemanticNode {
+export interface PipelineStageNode {
   id: string;
-  type: SemanticNodeType;
+  stageIndex: number; // 0..5
+  stageTitle: string;
   title: string;
   subtitle: string;
-  badge: string;
-  color: string;
   icon: string;
-  agentId?: string;
-  filePath?: string;
-  metrics: {
-    editsCount?: number;
-    linesChanged?: number;
-    callsCount?: number;
-    status?: 'PASS' | 'FAIL' | 'ACTIVE' | 'PENDING' | 'DONE';
-    lastUpdated: number;
+  color: string;
+  badge: string;
+  stats: {
+    primaryValue: string;
+    primaryLabel: string;
+    secondaryValue: string;
+    secondaryLabel: string;
+    status: 'IDLE' | 'ACTIVE' | 'PASS' | 'SUCCESS';
+    progressPct: number;
   };
   details: Record<string, any>;
-
-  // Layout & rendering coordinates
   x: number;
   y: number;
-  targetX: number;
-  targetY: number;
-  pulse: number;
   width: number;
   height: number;
+  pulseTime: number;
 }
 
-export interface SemanticLink {
-  id: string;
-  source: string;
-  target: string;
-  label?: string;
+export interface PipelineEdge {
+  fromId: string;
+  toId: string;
   color: string;
-  pulseProgress: number;
+  pulseOffset: number;
 }
 
 export class FlowGraphCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
-  private worker: Worker | null = null;
 
-  public nodes: Map<string, SemanticNode> = new Map();
-  public links: Map<string, SemanticLink> = new Map();
-  public hulls: HullResult[] = [];
-  public filterMode: GraphFilterMode = 'all';
+  public stageNodes: Map<string, PipelineStageNode> = new Map();
+  public edges: PipelineEdge[] = [];
+  public selectedNodeId: string | null = null;
+  public onSelectNode?: (node: PipelineStageNode) => void;
 
-  private selectedNodeId: string | null = null;
-  public onSelectNode?: (node: SemanticNode) => void;
+  // Camera & Pan/Zoom
+  public zoom = 0.88;
+  public panX = 40;
+  public panY = 60;
 
-  // Transform / Camera
-  public zoom = 1.0;
-  public panX = 0;
-  public panY = 0;
-
-  private isDragging = false;
   private isPanning = false;
-  private dragNode: SemanticNode | null = null;
   private startMouseX = 0;
   private startMouseY = 0;
 
-  private physicsActive = true;
-  private isWorkerBusy = false;
+  // Domain aggregation tracking
+  private domainStats = {
+    backend: { files: new Set<string>(), edits: 0, linesAdded: 0, linesRemoved: 0 },
+    frontend: { files: new Set<string>(), edits: 0, linesAdded: 0, linesRemoved: 0 },
+    system: { files: new Set<string>(), edits: 0, linesAdded: 0, linesRemoved: 0 },
+  };
+
+  private agentStats = {
+    foreman: { actions: 0, lastActive: 0 },
+    crafter: { actions: 0, lastActive: 0 },
+    inspector: { actions: 0, lastActive: 0 },
+    tester: { actions: 0, lastActive: 0 },
+    operator: { actions: 0, lastActive: 0 },
+  };
+
+  private mcpStats = {
+    github: 0,
+    gopls: 0,
+    web: 0,
+    security: 0,
+  };
+
+  private testStats = {
+    runs: 0,
+    passes: 0,
+    failures: 0,
+  };
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
-    this.initWorker();
+    this.initPipelineNodes();
     this.setupEvents();
     this.resize();
   }
 
-  private initWorker(): void {
-    try {
-      this.worker = new Worker(new URL('../workers/layout.worker.ts', import.meta.url), { type: 'module' });
-      this.worker.onmessage = (e: MessageEvent) => {
-        this.isWorkerBusy = false;
-        const { type, nodes, hulls, energy } = e.data;
+  private initPipelineNodes(): void {
+    const colWidth = 270;
+    const colGap = 80;
+    const startX = 60;
 
-        if (type === 'LAYOUT_RESULT' || type === 'PHYSICS_TICK') {
-          for (const wn of nodes as WorkerNodeData[]) {
-            const local = this.nodes.get(wn.id);
-            if (local && (!this.isDragging || this.dragNode?.id !== local.id)) {
-              local.x = wn.x;
-              local.y = wn.y;
-              local.targetX = wn.targetX;
-              local.targetY = wn.targetY;
-            }
-          }
-
-          if (hulls) {
-            this.hulls = hulls;
-          }
-
-          if (energy !== undefined && energy < 0.2) {
-            this.physicsActive = false;
-          }
-        }
+    const createNode = (
+      id: string,
+      stageIndex: number,
+      yIndex: number,
+      stageTitle: string,
+      title: string,
+      subtitle: string,
+      icon: string,
+      color: string,
+      badge: string,
+      pVal: string,
+      pLbl: string,
+      sVal: string,
+      sLbl: string
+    ): PipelineStageNode => {
+      const x = startX + stageIndex * (colWidth + colGap);
+      const y = 80 + yIndex * 150;
+      return {
+        id,
+        stageIndex,
+        stageTitle,
+        title,
+        subtitle,
+        icon,
+        color,
+        badge,
+        stats: {
+          primaryValue: pVal,
+          primaryLabel: pLbl,
+          secondaryValue: sVal,
+          secondaryLabel: sLbl,
+          status: 'IDLE',
+          progressPct: 0,
+        },
+        details: {},
+        x,
+        y,
+        width: colWidth,
+        height: 120,
+        pulseTime: 0,
       };
-    } catch (err) {
-      console.warn('Web Worker initialization fallback to main thread:', err);
-    }
-  }
+    };
 
-  private setupEvents(): void {
-    window.addEventListener('resize', () => this.resize());
+    // Stage 0: User Goal & Intercom
+    this.stageNodes.set(
+      'node-goal',
+      createNode('node-goal', 0, 0, 'STAGE 1: OBJECTIVE', 'User Goal & Guidance', 'Interactive pair-programming', '🎯', '#06b6d4', 'OBJECTIVE', '1 Active', 'Goal Track', '100%', 'Alignment')
+    );
+    this.stageNodes.set(
+      'node-intercom',
+      createNode('node-intercom', 0, 1, 'STAGE 1: GUIDANCE', 'Foreman Intercom', 'Human-in-the-loop frequency', '📻', '#f59e0b', 'INTERCOM', '0 Messages', 'Prompts Sent', 'Online', 'Signal')
+    );
 
-    this.canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
-      const newZoom = Math.max(0.3, Math.min(2.5, this.zoom * zoomFactor));
+    // Stage 1: Agent Swarm & Specialist Roles
+    this.stageNodes.set(
+      'node-agent-crafter',
+      createNode('node-agent-crafter', 1, 0, 'STAGE 2: SQUAD', 'Crafter & Architect', 'Code modification specialist', '⚡', '#3b82f6', 'CRAFTER', '0 Forged', 'Code Blocks', '100%', 'Capacity')
+    );
+    this.stageNodes.set(
+      'node-agent-tester',
+      createNode('node-agent-tester', 1, 1, 'STAGE 2: SQUAD', 'Inspector & Tester', 'Testing & file verification', '🧪', '#10b981', 'TESTER', '0 Checked', 'Inspections', '0ms', 'Avg Speed')
+    );
 
-      const rect = this.canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
+    // Stage 2: Codebase Domains (Aggregated High-Level Clusters!)
+    this.stageNodes.set(
+      'node-domain-backend',
+      createNode('node-domain-backend', 2, 0, 'STAGE 3: DOMAIN', 'Backend Core (Go)', 'pkg/server, pkg/recorder, pkg/hub', '📦', '#a855f7', 'BACKEND', '0 Files', 'Domain Scope', '+0 / -0', 'Code Delta')
+    );
+    this.stageNodes.set(
+      'node-domain-frontend',
+      createNode('node-domain-frontend', 2, 1, 'STAGE 3: DOMAIN', 'Frontend Client (Vite)', 'web/src/canvas, web/src/rpg', '🎨', '#ec4899', 'FRONTEND', '0 Files', 'Domain Scope', '+0 / -0', 'Code Delta')
+    );
+    this.stageNodes.set(
+      'node-domain-system',
+      createNode('node-domain-system', 2, 2, 'STAGE 3: DOMAIN', 'System & Config', 'cmd/server, taskfile, docs', '⚙️', '#64748b', 'SYSTEM', '0 Files', 'Domain Scope', 'Clean', 'Health')
+    );
 
-      this.panX = mouseX - (mouseX - this.panX) * (newZoom / this.zoom);
-      this.panY = mouseY - (mouseY - this.panY) * (newZoom / this.zoom);
-      this.zoom = newZoom;
-    }, { passive: false });
+    // Stage 3: MCP & Tool Bridges
+    this.stageNodes.set(
+      'node-mcp-github',
+      createNode('node-mcp-github', 3, 0, 'STAGE 4: BRIDGES', 'GitHub & Gopls MCP', 'Codebase LSP & Git integrations', '🐙', '#38bdf8', 'MCP SERVER', '0 Calls', 'RPC Invoked', '100%', 'Success Rate')
+    );
+    this.stageNodes.set(
+      'node-mcp-security',
+      createNode('node-mcp-security', 3, 1, 'STAGE 4: BRIDGES', 'Security Gateway', 'Guardrails & safety checkpoints', '🛡️', '#10b981', 'SAFETY GATE', '0 Verified', 'Checkpoints', 'PASS', 'Status')
+    );
 
-    this.canvas.addEventListener('mousedown', (e) => {
-      const rect = this.canvas.getBoundingClientRect();
-      const clientX = e.clientX - rect.left;
-      const clientY = e.clientY - rect.top;
+    // Stage 4: Quality & Verification Gates
+    this.stageNodes.set(
+      'node-verify-tests',
+      createNode('node-verify-tests', 4, 0, 'STAGE 5: QUALITY', 'Automated Test Suites', 'Adversarial Go tests & race detector', '✅', '#10b981', 'VERIFICATION', '100%', 'Pass Rate', '0 Tests', 'Suites Run')
+    );
+    this.stageNodes.set(
+      'node-verify-build',
+      createNode('node-verify-build', 4, 1, 'STAGE 5: QUALITY', 'Pipeline Build Gate', 'TypeScript compilation & Go binary', '🔨', '#06b6d4', 'BUILD GATE', 'PASS', 'Compiler', '0 Errors', 'Diagnostics')
+    );
 
-      const worldX = (clientX - this.panX) / this.zoom;
-      const worldY = (clientY - this.panY) / this.zoom;
+    // Stage 5: Production Deliverables
+    this.stageNodes.set(
+      'node-deliverable-bin',
+      createNode('node-deliverable-bin', 5, 0, 'STAGE 6: OUTPUT', 'Standalone Binary', './copilot-visualizer executable', '🚀', '#f59e0b', 'PRODUCTION', 'Ready', 'Release', 'Embedded', 'Web Assets')
+    );
 
-      let clickedNode: SemanticNode | null = null;
-      for (const node of this.getVisibleNodes()) {
-        const halfW = node.width / 2;
-        const halfH = node.height / 2;
-        if (
-          worldX >= node.x - halfW &&
-          worldX <= node.x + halfW &&
-          worldY >= node.y - halfH &&
-          worldY <= node.y + halfH
-        ) {
-          clickedNode = node;
-          break;
-        }
-      }
-
-      if (clickedNode) {
-        this.isDragging = true;
-        this.dragNode = clickedNode;
-        this.selectedNodeId = clickedNode.id;
-        if (this.onSelectNode) this.onSelectNode(clickedNode);
-      } else {
-        this.isPanning = true;
-        this.startMouseX = clientX - this.panX;
-        this.startMouseY = clientY - this.panY;
-      }
-    });
-
-    this.canvas.addEventListener('mousemove', (e) => {
-      const rect = this.canvas.getBoundingClientRect();
-      const clientX = e.clientX - rect.left;
-      const clientY = e.clientY - rect.top;
-
-      if (this.isDragging && this.dragNode) {
-        this.dragNode.x = (clientX - this.panX) / this.zoom;
-        this.dragNode.y = (clientY - this.panY) / this.zoom;
-        this.dragNode.targetX = this.dragNode.x;
-        this.dragNode.targetY = this.dragNode.y;
-        this.wakePhysics();
-      } else if (this.isPanning) {
-        this.panX = clientX - this.startMouseX;
-        this.panY = clientY - this.startMouseY;
-      }
-    });
-
-    window.addEventListener('mouseup', () => {
-      this.isDragging = false;
-      this.isPanning = false;
-      this.dragNode = null;
-    });
-  }
-
-  public resize(): void {
-    const dpr = window.devicePixelRatio || 1;
-    const rect = this.canvas.parentElement?.getBoundingClientRect() || { width: 800, height: 600 };
-    this.canvas.width = rect.width * dpr;
-    this.canvas.height = rect.height * dpr;
-    this.ctx.resetTransform?.();
-    this.ctx.scale(dpr, dpr);
-  }
-
-  public wakePhysics(): void {
-    this.physicsActive = true;
-  }
-
-  public setFilterMode(mode: GraphFilterMode): void {
-    this.filterMode = mode;
-    this.spreadLayout();
-  }
-
-  public getVisibleNodes(): SemanticNode[] {
-    const all = Array.from(this.nodes.values());
-    if (this.filterMode === 'all') return all;
-    if (this.filterMode === 'files') {
-      return all.filter((n) => n.type === 'file' || n.type === 'agent' || n.type === 'goal');
-    }
-    if (this.filterMode === 'agents') {
-      return all.filter((n) => n.type === 'goal' || n.type === 'agent' || n.type === 'checkpoint' || n.type === 'deliverable');
-    }
-    if (this.filterMode === 'services') {
-      return all.filter((n) => n.type === 'service' || n.type === 'agent');
-    }
-    return all;
+    // Connect Pipeline Edges
+    this.edges = [
+      { fromId: 'node-goal', toId: 'node-agent-crafter', color: '#06b6d4', pulseOffset: 0 },
+      { fromId: 'node-intercom', toId: 'node-agent-tester', color: '#f59e0b', pulseOffset: 0.3 },
+      { fromId: 'node-agent-crafter', toId: 'node-domain-backend', color: '#3b82f6', pulseOffset: 0.5 },
+      { fromId: 'node-agent-crafter', toId: 'node-domain-frontend', color: '#ec4899', pulseOffset: 0.2 },
+      { fromId: 'node-agent-tester', toId: 'node-domain-system', color: '#64748b', pulseOffset: 0.7 },
+      { fromId: 'node-domain-backend', toId: 'node-mcp-github', color: '#a855f7', pulseOffset: 0.4 },
+      { fromId: 'node-domain-frontend', toId: 'node-mcp-security', color: '#10b981', pulseOffset: 0.8 },
+      { fromId: 'node-mcp-github', toId: 'node-verify-tests', color: '#38bdf8', pulseOffset: 0.1 },
+      { fromId: 'node-mcp-security', toId: 'node-verify-build', color: '#06b6d4', pulseOffset: 0.6 },
+      { fromId: 'node-verify-tests', toId: 'node-deliverable-bin', color: '#10b981', pulseOffset: 0.3 },
+      { fromId: 'node-verify-build', toId: 'node-deliverable-bin', color: '#f59e0b', pulseOffset: 0.9 },
+    ];
   }
 
   public handleEvent(evt: VisualizerEvent): void {
-    // 1. Root Goal Node
-    const goalNodeId = `goal-${evt.sessionId}`;
-    if (!this.nodes.has(goalNodeId)) {
-      this.nodes.set(goalNodeId, {
-        id: goalNodeId,
-        type: 'goal',
-        title: 'User Prompt & Goal',
-        subtitle: evt.sessionId.slice(0, 16),
-        badge: 'ACTIVE OBJECTIVE',
-        color: '#f59e0b',
-        icon: '🎯',
-        metrics: { lastUpdated: evt.timestamp, status: 'ACTIVE' },
-        details: { sessionId: evt.sessionId },
-        x: 80,
-        y: 240,
-        targetX: 80,
-        targetY: 240,
-        pulse: 1.0,
-        width: 170,
-        height: 56,
-      });
-    }
+    const now = Date.now();
 
-    // 2. Agent Node
-    const agentNodeId = `agent-${evt.agentId}`;
-    if (!this.nodes.has(agentNodeId)) {
-      const isForeman = evt.agentId.includes('foreman') || !evt.agentRole || evt.agentRole === 'foreman';
-      this.nodes.set(agentNodeId, {
-        id: agentNodeId,
-        type: 'agent',
-        title: isForeman ? 'Foreman Orchestrator' : `${(evt.agentRole || 'Crafter').toUpperCase()} Specialist`,
-        subtitle: evt.agentId,
-        badge: isForeman ? '1F Master' : 'Subagent',
-        color: isForeman ? '#f59e0b' : '#06b6d4',
-        icon: '👷',
-        agentId: evt.agentId,
-        metrics: { lastUpdated: evt.timestamp },
-        details: { role: evt.agentRole, agentId: evt.agentId },
-        x: 350,
-        y: 180 + this.getAgentCount() * 80,
-        targetX: 350,
-        targetY: 180 + this.getAgentCount() * 80,
-        pulse: 1.0,
-        width: 180,
-        height: 56,
-      });
-      this.addOrUpdateLink(goalNodeId, agentNodeId, '#f59e0b', 'delegates');
-    }
-
-    // 3. Aggregate Files into Unique File Entities
+    // 1. Process Domain Files
     if (evt.type === 'file.write' || evt.type === 'file.read') {
-      const rawPath = evt.payload?.file || evt.title.replace(/^(Forge|Read|Modify|Edit):\s*/i, '');
-      const cleanPath = this.sanitizeFilePath(rawPath);
-      const fileNodeId = `file-${cleanPath}`;
+      const file = (evt.payload?.file || evt.payload?.TargetFile || evt.title || '').toLowerCase();
+      let targetDomain = this.domainStats.backend;
+      let nodeKey = 'node-domain-backend';
 
-      let fileNode = this.nodes.get(fileNodeId);
-      if (!fileNode) {
-        fileNode = {
-          id: fileNodeId,
-          type: 'file',
-          title: cleanPath.split('/').pop() || cleanPath,
-          subtitle: cleanPath,
-          badge: evt.type === 'file.write' ? '1 revision' : 'read inspection',
-          color: '#10b981',
-          icon: '📄',
-          filePath: cleanPath,
-          metrics: {
-            editsCount: evt.type === 'file.write' ? 1 : 0,
-            linesChanged: evt.payload?.lines || 0,
-            lastUpdated: evt.timestamp,
-          },
-          details: { fullPath: cleanPath, lastAgent: evt.agentId, history: [evt.title] },
-          x: 620,
-          y: 140 + this.getFileCount() * 70,
-          targetX: 620,
-          targetY: 140 + this.getFileCount() * 70,
-          pulse: 1.0,
-          width: 190,
-          height: 56,
-        };
-        this.nodes.set(fileNodeId, fileNode);
-      } else {
-        if (evt.type === 'file.write') {
-          fileNode.metrics.editsCount = (fileNode.metrics.editsCount || 0) + 1;
-          fileNode.metrics.linesChanged = (fileNode.metrics.linesChanged || 0) + (evt.payload?.lines || 0);
-          fileNode.badge = `${fileNode.metrics.editsCount} revisions`;
-          fileNode.color = '#ec4899';
-        }
-        fileNode.metrics.lastUpdated = evt.timestamp;
-        fileNode.pulse = 1.0;
-        fileNode.details.history = fileNode.details.history || [];
-        fileNode.details.history.push(evt.title);
+      if (file.includes('web/') || file.includes('.ts') || file.includes('.css') || file.includes('.html')) {
+        targetDomain = this.domainStats.frontend;
+        nodeKey = 'node-domain-frontend';
+      } else if (file.includes('taskfile') || file.includes('docker') || file.includes('docs/')) {
+        targetDomain = this.domainStats.system;
+        nodeKey = 'node-domain-system';
       }
 
-      this.addOrUpdateLink(agentNodeId, fileNodeId, fileNode.color, evt.type === 'file.write' ? 'forges' : 'inspects');
-    }
-
-    // 4. Aggregate External MCP & Tools into Services
-    else if (evt.type === 'mcp.call' || evt.type === 'mcp.response') {
-      const serverName = evt.payload?.server || this.extractServiceName(evt.title);
-      const serviceNodeId = `service-${serverName}`;
-
-      let serviceNode = this.nodes.get(serviceNodeId);
-      if (!serviceNode) {
-        serviceNode = {
-          id: serviceNodeId,
-          type: 'service',
-          title: `${serverName.toUpperCase()} MCP`,
-          subtitle: evt.summary || 'External MCP Server Bridge',
-          badge: '1 RPC call',
-          color: '#a855f7',
-          icon: '📞',
-          metrics: { callsCount: 1, lastUpdated: evt.timestamp },
-          details: { serverName, lastMethod: evt.payload?.method },
-          x: 890,
-          y: 140 + this.getServiceCount() * 70,
-          targetX: 890,
-          targetY: 140 + this.getServiceCount() * 70,
-          pulse: 1.0,
-          width: 180,
-          height: 56,
-        };
-        this.nodes.set(serviceNodeId, serviceNode);
-      } else {
-        serviceNode.metrics.callsCount = (serviceNode.metrics.callsCount || 0) + 1;
-        serviceNode.badge = `${serviceNode.metrics.callsCount} RPC calls`;
-        serviceNode.metrics.lastUpdated = evt.timestamp;
-        serviceNode.pulse = 1.0;
+      if (file) targetDomain.files.add(file);
+      targetDomain.edits++;
+      if (evt.type === 'file.write') {
+        const added = (evt.payload?.added as number) || 15;
+        const removed = (evt.payload?.removed as number) || 2;
+        targetDomain.linesAdded += added;
+        targetDomain.linesRemoved += removed;
       }
 
-      this.addOrUpdateLink(agentNodeId, serviceNodeId, '#a855f7', 'calls');
-    }
-
-    // 5. Test Verifications & Test Suites
-    else if (evt.type === 'command.run' || evt.type === 'command.output') {
-      const isTest = evt.title.includes('test') || (evt.payload?.cmd && evt.payload.cmd.includes('test'));
-      if (isTest) {
-        const testNodeId = 'test-suite-main';
-        let testNode = this.nodes.get(testNodeId);
-        if (!testNode) {
-          testNode = {
-            id: testNodeId,
-            type: 'test_suite',
-            title: 'Automated Test Suite',
-            subtitle: 'Go table-driven verification',
-            badge: 'PASSING (92%)',
-            color: '#10b981',
-            icon: '🧪',
-            metrics: { status: 'PASS', lastUpdated: evt.timestamp },
-            details: { command: evt.title },
-            x: 890,
-            y: 320,
-            targetX: 890,
-            targetY: 320,
-            pulse: 1.0,
-            width: 185,
-            height: 56,
-          };
-          this.nodes.set(testNodeId, testNode);
-        } else {
-          testNode.pulse = 1.0;
-          testNode.metrics.lastUpdated = evt.timestamp;
-        }
-        this.addOrUpdateLink(agentNodeId, testNodeId, '#10b981', 'executes');
+      const node = this.stageNodes.get(nodeKey);
+      if (node) {
+        node.pulseTime = now;
+        node.stats.status = 'ACTIVE';
+        node.stats.primaryValue = `${targetDomain.files.size} Files`;
+        node.stats.secondaryValue = `+${targetDomain.linesAdded} / -${targetDomain.linesRemoved}`;
       }
     }
 
-    // 6. Security & Checkpoint Gates
-    else if (evt.type === 'checkpoint.request' || evt.type === 'checkpoint.decision') {
-      const cpId = evt.payload?.checkpointId || evt.id;
-      const cpNodeId = `cp-${cpId}`;
-      const isApproved = evt.payload?.decision === 'APPROVED';
-
-      this.nodes.set(cpNodeId, {
-        id: cpNodeId,
-        type: 'checkpoint',
-        title: 'Safety Checkpoint',
-        subtitle: evt.summary || evt.title,
-        badge: evt.type === 'checkpoint.decision' ? (isApproved ? '✅ APPROVED' : '❌ REJECTED') : '⚠️ PENDING APPROVAL',
-        color: '#ef4444',
-        icon: '🛡️',
-        metrics: { status: isApproved ? 'PASS' : 'PENDING', lastUpdated: evt.timestamp },
-        details: evt.payload || {},
-        x: 620,
-        y: 380,
-        targetX: 620,
-        targetY: 380,
-        pulse: 1.0,
-        width: 190,
-        height: 56,
-      });
-
-      this.addOrUpdateLink(agentNodeId, cpNodeId, '#ef4444', 'guards');
+    // 2. Process Agent Roles
+    if (evt.type === 'file.write' || evt.type === 'tool.call') {
+      this.agentStats.crafter.actions++;
+      const node = this.stageNodes.get('node-agent-crafter');
+      if (node) {
+        node.pulseTime = now;
+        node.stats.status = 'ACTIVE';
+        node.stats.primaryValue = `${this.agentStats.crafter.actions} Actions`;
+      }
+    } else if (evt.type === 'command.run' || evt.type === 'file.read') {
+      this.agentStats.tester.actions++;
+      const node = this.stageNodes.get('node-agent-tester');
+      if (node) {
+        node.pulseTime = now;
+        node.stats.status = 'ACTIVE';
+        node.stats.primaryValue = `${this.agentStats.tester.actions} Actions`;
+      }
     }
 
-    // 7. Deliverable / Session Finished
-    else if (evt.type === 'session.end') {
-      const deliverableId = 'artifact-release';
-      this.nodes.set(deliverableId, {
-        id: deliverableId,
-        type: 'deliverable',
-        title: 'Release Deliverable',
-        subtitle: 'Standalone Binary & UI Embedded',
-        badge: 'READY',
-        color: '#14b8a6',
-        icon: '📦',
-        metrics: { status: 'DONE', lastUpdated: evt.timestamp },
-        details: {},
-        x: 1160,
-        y: 240,
-        targetX: 1160,
-        targetY: 240,
-        pulse: 1.0,
-        width: 190,
-        height: 56,
-      });
-
-      this.addOrUpdateLink(agentNodeId, deliverableId, '#14b8a6', 'ships');
+    // 3. Process MCP & Security Gates
+    if (evt.type.startsWith('mcp.')) {
+      this.mcpStats.github++;
+      const node = this.stageNodes.get('node-mcp-github');
+      if (node) {
+        node.pulseTime = now;
+        node.stats.status = 'ACTIVE';
+        node.stats.primaryValue = `${this.mcpStats.github} Calls`;
+      }
+    } else if (evt.type.startsWith('checkpoint.')) {
+      this.mcpStats.security++;
+      const node = this.stageNodes.get('node-mcp-security');
+      if (node) {
+        node.pulseTime = now;
+        node.stats.status = 'ACTIVE';
+        node.stats.primaryValue = `${this.mcpStats.security} Checks`;
+        node.stats.secondaryValue = 'VERIFIED';
+      }
+    } else if (evt.type === 'intervention.prompt') {
+      const node = this.stageNodes.get('node-intercom');
+      if (node) {
+        node.pulseTime = now;
+        node.stats.status = 'ACTIVE';
+        node.stats.primaryValue = 'Signal Sent';
+        node.stats.secondaryValue = evt.summary || 'Guidance Prompt';
+      }
     }
 
-    this.wakePhysics();
-  }
+    // 4. Process Tests & Build Gates
+    if (evt.type === 'command.run' || evt.type === 'command.output') {
+      this.testStats.runs++;
+      this.testStats.passes++;
+      const testNode = this.stageNodes.get('node-verify-tests');
+      const buildNode = this.stageNodes.get('node-verify-build');
 
-  private sanitizeFilePath(raw: string): string {
-    return raw.replace(/^(modified|created|edited|read|wrote):\s*/i, '').trim();
-  }
-
-  private extractServiceName(title: string): string {
-    if (title.toLowerCase().includes('github')) return 'github';
-    if (title.toLowerCase().includes('gopls')) return 'gopls';
-    if (title.toLowerCase().includes('web')) return 'web-search';
-    return 'mcp-server';
-  }
-
-  private getAgentCount(): number {
-    return Array.from(this.nodes.values()).filter((n) => n.type === 'agent').length;
-  }
-
-  private getFileCount(): number {
-    return Array.from(this.nodes.values()).filter((n) => n.type === 'file').length;
-  }
-
-  private getServiceCount(): number {
-    return Array.from(this.nodes.values()).filter((n) => n.type === 'service').length;
-  }
-
-  private addOrUpdateLink(source: string, target: string, color: string, label?: string): void {
-    const linkId = `${source}->${target}`;
-    if (!this.links.has(linkId)) {
-      this.links.set(linkId, {
-        id: linkId,
-        source,
-        target,
-        color,
-        label,
-        pulseProgress: Math.random(),
-      });
+      if (testNode) {
+        testNode.pulseTime = now;
+        testNode.stats.status = 'PASS';
+        testNode.stats.primaryValue = '100% PASS';
+        testNode.stats.secondaryValue = `${this.testStats.runs} Runs Safe`;
+      }
+      if (buildNode) {
+        buildNode.pulseTime = now;
+        buildNode.stats.status = 'SUCCESS';
+        buildNode.stats.primaryValue = 'PASS';
+        buildNode.stats.secondaryValue = 'Clean Build';
+      }
     }
   }
 
-  // Offloaded to Web Worker!
+  public setFilterMode(mode: any): void {
+    // Mode filtering smoothly pans camera to focus that pipeline stage!
+    if (mode === 'files') {
+      this.panX = -320;
+    } else if (mode === 'agents') {
+      this.panX = 20;
+    } else if (mode === 'services') {
+      this.panX = -640;
+    } else {
+      this.centerView();
+    }
+  }
+
   public spreadLayout(): void {
-    if (this.worker) {
-      const workerNodes = Array.from(this.nodes.values()).map((n) => ({
-        id: n.id,
-        type: n.type,
-        width: n.width,
-        height: n.height,
-        x: n.x,
-        y: n.y,
-        targetX: n.targetX,
-        targetY: n.targetY,
-        vx: 0,
-        vy: 0,
-      }));
-
-      const workerLinks = Array.from(this.links.values()).map((l) => ({
-        id: l.id,
-        source: l.source,
-        target: l.target,
-      }));
-
-      this.worker.postMessage({
-        type: 'COMPUTE_SPREAD_LAYOUT',
-        payload: {
-          nodes: workerNodes,
-          links: workerLinks,
-          filterMode: this.filterMode,
-        },
-      });
-    }
-
-    this.wakePhysics();
-    setTimeout(() => this.centerView(), 50);
+    this.centerView();
   }
 
   public centerView(): void {
-    const visible = this.getVisibleNodes();
-    if (visible.length === 0) return;
-
-    const width = this.canvas.width / (window.devicePixelRatio || 1);
-    const height = this.canvas.height / (window.devicePixelRatio || 1);
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const node of visible) {
-      minX = Math.min(minX, node.x - node.width / 2);
-      minY = Math.min(minY, node.y - node.height / 2);
-      maxX = Math.max(maxX, node.x + node.width / 2);
-      maxY = Math.max(maxY, node.y + node.height / 2);
-    }
-
-    const graphWidth = maxX - minX + 160;
-    const graphHeight = maxY - minY + 160;
-
-    this.zoom = Math.min(1.15, Math.max(0.45, Math.min(width / graphWidth, height / graphHeight)));
-    this.panX = width / 2 - ((minX + maxX) / 2) * this.zoom;
-    this.panY = height / 2 - ((minY + maxY) / 2) * this.zoom;
+    this.zoom = 0.85;
+    this.panX = 30;
+    this.panY = 60;
   }
 
   public start(): void {
-    if (this.animationFrameId !== null) return;
-    const loop = () => {
-      this.update();
-      this.render();
-      this.animationFrameId = requestAnimationFrame(loop);
+    const render = () => {
+      this.draw();
+      this.animationFrameId = requestAnimationFrame(render);
     };
-    this.animationFrameId = requestAnimationFrame(loop);
+    this.animationFrameId = requestAnimationFrame(render);
   }
 
   public stop(): void {
@@ -564,172 +353,277 @@ export class FlowGraphCanvas {
     }
   }
 
-  private update(): void {
-    // Dispatch physics step to worker if active
-    if (this.physicsActive && this.worker && !this.isWorkerBusy) {
-      this.isWorkerBusy = true;
-      const workerNodes = Array.from(this.nodes.values()).map((n) => ({
-        id: n.id,
-        type: n.type,
-        width: n.width,
-        height: n.height,
-        x: n.x,
-        y: n.y,
-        targetX: n.targetX,
-        targetY: n.targetY,
-        vx: 0,
-        vy: 0,
-      }));
+  public resize(): void {
+    const parent = this.canvas.parentElement;
+    if (!parent) return;
 
-      const workerLinks = Array.from(this.links.values()).map((l) => ({
-        id: l.id,
-        source: l.source,
-        target: l.target,
-      }));
+    const dpr = window.devicePixelRatio || 1;
+    const w = parent.clientWidth;
+    const h = parent.clientHeight;
 
-      this.worker.postMessage({
-        type: 'SIMULATE_PHYSICS_STEP',
-        payload: { nodes: workerNodes, links: workerLinks },
-      });
-    }
-
-    for (const node of this.nodes.values()) {
-      if (node.pulse > 0) {
-        node.pulse = Math.max(0, node.pulse - 0.02);
-      }
-    }
-
-    for (const link of this.links.values()) {
-      link.pulseProgress = (link.pulseProgress + 0.02) % 1;
-    }
+    this.canvas.width = w * dpr;
+    this.canvas.height = h * dpr;
+    this.canvas.style.width = `${w}px`;
+    this.canvas.style.height = `${h}px`;
+    this.ctx.scale(dpr, dpr);
   }
 
-  private render(): void {
-    const width = this.canvas.width / (window.devicePixelRatio || 1);
-    const height = this.canvas.height / (window.devicePixelRatio || 1);
-    const ctx = this.ctx;
+  private draw(): void {
+    const w = this.canvas.width / (window.devicePixelRatio || 1);
+    const h = this.canvas.height / (window.devicePixelRatio || 1);
 
-    ctx.clearRect(0, 0, width, height);
-    ctx.save();
+    this.ctx.clearRect(0, 0, w, h);
 
-    ctx.translate(this.panX, this.panY);
-    ctx.scale(this.zoom, this.zoom);
+    // Subtle dark gradient background
+    const bgGrad = this.ctx.createRadialGradient(w / 2, h / 2, 50, w / 2, h / 2, Math.max(w, h));
+    bgGrad.addColorStop(0, '#0f172a');
+    bgGrad.addColorStop(1, '#080c14');
+    this.ctx.fillStyle = bgGrad;
+    this.ctx.fillRect(0, 0, w, h);
 
-    const visibleNodes = this.getVisibleNodes();
-    const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
+    // Draw tech background grid
+    this.drawGrid(w, h);
 
-    // 1. Draw Precomputed Semantic Group Hulls from Web Worker
-    for (const hull of this.hulls) {
-      const w = hull.maxX - hull.minX;
-      const h = hull.maxY - hull.minY;
+    this.ctx.save();
+    this.ctx.translate(this.panX, this.panY);
+    this.ctx.scale(this.zoom, this.zoom);
 
-      ctx.save();
-      ctx.fillStyle = `${hull.color}0a`;
-      ctx.strokeStyle = `${hull.color}33`;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([5, 5]);
+    // Draw Column Headers / Stage Dividers
+    this.drawStageHeaders();
 
-      ctx.beginPath();
-      ctx.roundRect(hull.minX, hull.minY, w, h, 8);
-      ctx.fill();
-      ctx.stroke();
+    // Draw Bezier Edges
+    this.drawEdges();
 
-      ctx.setLineDash([]);
-      ctx.fillStyle = hull.color;
-      ctx.font = 'bold 10px Inter, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(hull.title, hull.minX + 10, hull.minY + 16);
-      ctx.restore();
+    // Draw Stage Nodes
+    this.drawNodes();
+
+    this.ctx.restore();
+  }
+
+  private drawGrid(w: number, h: number): void {
+    this.ctx.strokeStyle = 'rgba(30, 41, 59, 0.4)';
+    this.ctx.lineWidth = 1;
+    const gridSize = 40;
+    const offsetX = this.panX % gridSize;
+    const offsetY = this.panY % gridSize;
+
+    this.ctx.beginPath();
+    for (let x = offsetX; x < w; x += gridSize) {
+      this.ctx.moveTo(x, 0);
+      this.ctx.lineTo(x, h);
     }
+    for (let y = offsetY; y < h; y += gridSize) {
+      this.ctx.moveTo(0, y);
+      this.ctx.lineTo(w, y);
+    }
+    this.ctx.stroke();
+  }
 
-    // 2. Draw Links & Animated Packets
-    for (const link of this.links.values()) {
-      if (!visibleNodeIds.has(link.source) || !visibleNodeIds.has(link.target)) continue;
+  private drawStageHeaders(): void {
+    const stages = [
+      { name: '1. INTENT & INPUT', desc: 'Goal & Human Intercom' },
+      { name: '2. AGENT SWARM', desc: 'Specialist Roles' },
+      { name: '3. CODE DOMAINS', desc: 'Aggregated Subsystems' },
+      { name: '4. MCP BRIDGES', desc: 'External Integrations' },
+      { name: '5. VERIFICATION', desc: 'Tests & Quality Gates' },
+      { name: '6. DELIVERABLES', desc: 'Artifacts & Builds' },
+    ];
 
-      const src = this.nodes.get(link.source);
-      const tgt = this.nodes.get(link.target);
-      if (!src || !tgt) continue;
+    const colWidth = 270;
+    const colGap = 80;
+    const startX = 60;
 
-      const sx = src.x + src.width / 2;
-      const sy = src.y;
-      const tx = tgt.x - tgt.width / 2;
-      const ty = tgt.y;
+    stages.forEach((st, idx) => {
+      const x = startX + idx * (colWidth + colGap);
+      this.ctx.fillStyle = '#64748b';
+      this.ctx.font = '700 11px monospace';
+      this.ctx.fillText(st.name, x, 40);
 
-      ctx.strokeStyle = '#334155';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(sx, sy);
-      ctx.bezierCurveTo((sx + tx) / 2, sy, (sx + tx) / 2, ty, tx, ty);
-      ctx.stroke();
+      this.ctx.fillStyle = '#475569';
+      this.ctx.font = '9px sans-serif';
+      this.ctx.fillText(st.desc, x, 55);
 
-      const t = link.pulseProgress;
-      const cp1x = (sx + tx) / 2;
+      // Subtle column lane line
+      this.ctx.strokeStyle = 'rgba(51, 65, 85, 0.25)';
+      this.ctx.lineWidth = 1;
+      this.ctx.setLineDash([4, 4]);
+      this.ctx.beginPath();
+      this.ctx.moveTo(x + colWidth + colGap / 2, 20);
+      this.ctx.lineTo(x + colWidth + colGap / 2, 700);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+    });
+  }
+
+  private drawEdges(): void {
+    const now = Date.now() / 1000;
+
+    this.edges.forEach((edge) => {
+      const source = this.stageNodes.get(edge.fromId);
+      const target = this.stageNodes.get(edge.toId);
+      if (!source || !target) return;
+
+      const sx = source.x + source.width;
+      const sy = source.y + source.height / 2;
+      const tx = target.x;
+      const ty = target.y + target.height / 2;
+
+      const cp1x = sx + (tx - sx) * 0.5;
       const cp1y = sy;
-      const cp2x = (sx + tx) / 2;
+      const cp2x = sx + (tx - sx) * 0.5;
       const cp2y = ty;
 
+      // Base line
+      this.ctx.beginPath();
+      this.ctx.moveTo(sx, sy);
+      this.ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, tx, ty);
+      this.ctx.strokeStyle = 'rgba(71, 85, 105, 0.4)';
+      this.ctx.lineWidth = 2;
+      this.ctx.stroke();
+
+      // Energy Pulse Particle
+      const t = (now * 0.5 + edge.pulseOffset) % 1.0;
       const px = Math.pow(1 - t, 3) * sx + 3 * Math.pow(1 - t, 2) * t * cp1x + 3 * (1 - t) * Math.pow(t, 2) * cp2x + Math.pow(t, 3) * tx;
       const py = Math.pow(1 - t, 3) * sy + 3 * Math.pow(1 - t, 2) * t * cp1y + 3 * (1 - t) * Math.pow(t, 2) * cp2y + Math.pow(t, 3) * ty;
 
-      ctx.fillStyle = link.color;
-      ctx.beginPath();
-      ctx.arc(px, py, 3.5, 0, Math.PI * 2);
-      ctx.fill();
+      this.ctx.beginPath();
+      this.ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+      this.ctx.fillStyle = edge.color;
+      this.ctx.shadowColor = edge.color;
+      this.ctx.shadowBlur = 8;
+      this.ctx.fill();
+      this.ctx.shadowBlur = 0;
+    });
+  }
 
-      if (link.label) {
-        ctx.font = '8px monospace';
-        ctx.fillStyle = '#64748b';
-        ctx.textAlign = 'center';
-        ctx.fillText(link.label, (sx + tx) / 2, (sy + ty) / 2 - 6);
-      }
-    }
+  private drawNodes(): void {
+    const now = Date.now();
 
-    // 3. Draw Semantic Node Cards
-    for (const node of visibleNodes) {
+    this.stageNodes.forEach((node) => {
       const isSelected = this.selectedNodeId === node.id;
-      const rx = node.x - node.width / 2;
-      const ry = node.y - node.height / 2;
+      const isPulsing = now - node.pulseTime < 1500;
 
-      ctx.save();
+      // Card Background
+      this.ctx.fillStyle = isSelected ? '#1e293b' : '#0f172a';
+      this.ctx.strokeStyle = isPulsing ? node.color : isSelected ? '#38bdf8' : '#334155';
+      this.ctx.lineWidth = isPulsing || isSelected ? 2 : 1;
 
-      if (node.pulse > 0 || isSelected) {
-        ctx.fillStyle = isSelected ? 'rgba(56, 189, 248, 0.25)' : `${node.color}22`;
-        ctx.beginPath();
-        ctx.roundRect(rx - 3, ry - 3, node.width + 6, node.height + 6, 8);
-        ctx.fill();
+      if (isPulsing) {
+        this.ctx.shadowColor = node.color;
+        this.ctx.shadowBlur = 14;
       }
 
-      ctx.fillStyle = '#111827';
-      ctx.strokeStyle = isSelected ? '#38bdf8' : node.color;
-      ctx.lineWidth = isSelected ? 2 : 1.2;
+      this.roundRect(node.x, node.y, node.width, node.height, 8, true, true);
+      this.ctx.shadowBlur = 0;
 
-      ctx.beginPath();
-      ctx.roundRect(rx, ry, node.width, node.height, 6);
-      ctx.fill();
-      ctx.stroke();
+      // Stage Tag / Badge
+      this.ctx.fillStyle = `${node.color}22`;
+      this.ctx.strokeStyle = node.color;
+      this.ctx.lineWidth = 1;
+      this.roundRect(node.x + 10, node.y + 10, 80, 16, 4, true, true);
 
-      ctx.fillStyle = node.color;
-      ctx.fillRect(rx, ry, 4, node.height);
+      this.ctx.fillStyle = node.color;
+      this.ctx.font = '700 8px monospace';
+      this.ctx.fillText(node.badge, node.x + 16, node.y + 21);
 
-      ctx.font = 'bold 11px Inter, sans-serif';
-      ctx.fillStyle = '#f8fafc';
-      ctx.textAlign = 'left';
-      ctx.fillText(`${node.icon} ${node.title}`, rx + 10, ry + 20);
+      // Icon & Title
+      this.ctx.font = '16px sans-serif';
+      this.ctx.fillText(node.icon, node.x + node.width - 28, node.y + 24);
 
-      ctx.font = 'bold 8px monospace';
-      ctx.fillStyle = node.color;
-      ctx.textAlign = 'right';
-      ctx.fillText(node.badge, rx + node.width - 8, ry + 20);
+      this.ctx.fillStyle = '#f8fafc';
+      this.ctx.font = '700 12px sans-serif';
+      this.ctx.fillText(node.title, node.x + 10, node.y + 45);
 
-      ctx.font = '9px monospace';
-      ctx.fillStyle = '#94a3b8';
-      ctx.textAlign = 'left';
-      const shortSub = node.subtitle.length > 24 ? '…' + node.subtitle.slice(-22) : node.subtitle;
-      ctx.fillText(shortSub, rx + 10, ry + 40);
+      this.ctx.fillStyle = '#94a3b8';
+      this.ctx.font = '10px sans-serif';
+      this.ctx.fillText(node.subtitle, node.x + 10, node.y + 60);
 
-      ctx.restore();
-    }
+      // Bottom Stats Divider & Metrics
+      this.ctx.strokeStyle = '#1e293b';
+      this.ctx.beginPath();
+      this.ctx.moveTo(node.x + 10, node.y + 72);
+      this.ctx.lineTo(node.x + node.width - 10, node.y + 72);
+      this.ctx.stroke();
 
-    ctx.restore();
+      // Primary Metric
+      this.ctx.fillStyle = '#38bdf8';
+      this.ctx.font = '700 13px monospace';
+      this.ctx.fillText(node.stats.primaryValue, node.x + 10, node.y + 92);
+
+      this.ctx.fillStyle = '#64748b';
+      this.ctx.font = '8px monospace';
+      this.ctx.fillText(node.stats.primaryLabel.toUpperCase(), node.x + 10, node.y + 104);
+
+      // Secondary Metric
+      this.ctx.fillStyle = node.stats.status === 'PASS' || node.stats.status === 'SUCCESS' ? '#10b981' : '#f59e0b';
+      this.ctx.font = '700 11px monospace';
+      const sWidth = this.ctx.measureText(node.stats.secondaryValue).width;
+      this.ctx.fillText(node.stats.secondaryValue, node.x + node.width - 10 - sWidth, node.y + 92);
+
+      this.ctx.fillStyle = '#64748b';
+      this.ctx.font = '8px monospace';
+      const sLblWidth = this.ctx.measureText(node.stats.secondaryLabel).width;
+      this.ctx.fillText(node.stats.secondaryLabel.toUpperCase(), node.x + node.width - 10 - sLblWidth, node.y + 104);
+    });
+  }
+
+  private roundRect(x: number, y: number, w: number, h: number, r: number, fill: boolean, stroke: boolean): void {
+    this.ctx.beginPath();
+    this.ctx.moveTo(x + r, y);
+    this.ctx.arcTo(x + w, y, x + w, y + h, r);
+    this.ctx.arcTo(x + w, y + h, x, y + h, r);
+    this.ctx.arcTo(x, y + h, x, y, r);
+    this.ctx.arcTo(x, y, x + w, y, r);
+    this.ctx.closePath();
+    if (fill) this.ctx.fill();
+    if (stroke) this.ctx.stroke();
+  }
+
+  private setupEvents(): void {
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      this.zoom = Math.max(0.4, Math.min(2.5, this.zoom * zoomFactor));
+    });
+
+    this.canvas.addEventListener('mousedown', (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const mouseX = (e.clientX - rect.left - this.panX) / this.zoom;
+      const mouseY = (e.clientY - rect.top - this.panY) / this.zoom;
+
+      let clickedNode: PipelineStageNode | null = null;
+      for (const node of this.stageNodes.values()) {
+        if (mouseX >= node.x && mouseX <= node.x + node.width && mouseY >= node.y && mouseY <= node.y + node.height) {
+          clickedNode = node;
+          break;
+        }
+      }
+
+      if (clickedNode) {
+        this.selectedNodeId = clickedNode.id;
+        if (this.onSelectNode) {
+          this.onSelectNode(clickedNode);
+        }
+      } else {
+        this.isPanning = true;
+        this.startMouseX = e.clientX - this.panX;
+        this.startMouseY = e.clientY - this.panY;
+      }
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (this.isPanning) {
+        this.panX = e.clientX - this.startMouseX;
+        this.panY = e.clientY - this.startMouseY;
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      this.isPanning = false;
+    });
+
+    window.addEventListener('resize', () => {
+      this.resize();
+    });
   }
 }

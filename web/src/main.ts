@@ -369,11 +369,17 @@ class App {
     this.graphCanvas.onSelectNode = (node) => {
       this.renderInspector(
         `${node.icon} ${node.title}`,
-        `${node.subtitle} (${node.badge})`,
-        { ...node.metrics, ...node.details }
+        `${node.subtitle} [${node.badge}]`,
+        {
+          stage: node.stageTitle,
+          primaryMetric: `${node.stats.primaryLabel}: ${node.stats.primaryValue}`,
+          secondaryMetric: `${node.stats.secondaryLabel}: ${node.stats.secondaryValue}`,
+          status: node.stats.status,
+          ...node.details,
+        }
       );
-      if (node.type === 'file') {
-        this.openDiffModal(node.title, node.filePath, node.details);
+      if (node.id.includes('domain')) {
+        this.openDiffModal(node.title, 'Domain Codebase Delta', node.details);
       }
     };
 
