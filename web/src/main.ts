@@ -4,11 +4,13 @@ import type { VisualizerEvent } from './types';
 import { VisualizerClient } from './services/ws';
 import { WorkshopCanvas } from './canvas/workshop';
 import { FlowGraphCanvas } from './canvas/graph';
+import { RPGEngine } from './rpg/engine';
 
 class App {
   private client: VisualizerClient;
   private workshopCanvas!: WorkshopCanvas;
   private graphCanvas!: FlowGraphCanvas;
+  private rpg: RPGEngine;
 
   private allEvents: VisualizerEvent[] = [];
   private currentPlaybackIndex = -1;
@@ -30,11 +32,13 @@ class App {
 
   constructor() {
     this.client = new VisualizerClient();
+    this.rpg = new RPGEngine();
     this.initDOM();
     this.initCanvases();
     this.setupSubscriptions();
     this.client.connect();
     this.loadInitialHistory();
+    this.setupRPG();
   }
 
   private initDOM(): void {
@@ -99,23 +103,74 @@ class App {
           </div>
 
           <div class="hud-overlay">
-            <div class="hud-card">
-              <span>EVENTS</span>
-              <span id="hud-events" class="hud-val">0</span>
+            <!-- RPG Character Card -->
+            <div class="rpg-card">
+              <div class="rpg-header">
+                <div class="rpg-name-badge">
+                  <span id="rpg-level" class="rpg-level-pill">Lv. 1</span>
+                  <span id="rpg-title" class="rpg-char-title">Junior Code Crafter</span>
+                </div>
+                <span id="rpg-spells" class="rpg-spells-count">0 Casts</span>
+              </div>
+
+              <div class="rpg-bar-group">
+                <!-- HP Bar -->
+                <div class="rpg-bar-wrapper">
+                  <div class="rpg-bar-label">
+                    <span>HP (Stability)</span>
+                    <span id="rpg-hp-val">100/100</span>
+                  </div>
+                  <div class="rpg-progress-track">
+                    <div id="rpg-hp-fill" class="rpg-fill-hp" style="width: 100%;"></div>
+                  </div>
+                </div>
+
+                <!-- MP Bar -->
+                <div class="rpg-bar-wrapper">
+                  <div class="rpg-bar-label">
+                    <span>MP (Context Mana)</span>
+                    <span id="rpg-mp-val">200k/200k</span>
+                  </div>
+                  <div class="rpg-progress-track">
+                    <div id="rpg-mp-fill" class="rpg-fill-mp" style="width: 100%;"></div>
+                  </div>
+                </div>
+
+                <!-- XP Bar -->
+                <div class="rpg-bar-wrapper">
+                  <div class="rpg-bar-label">
+                    <span>EXP (Progression)</span>
+                    <span id="rpg-xp-val">0/300 XP</span>
+                  </div>
+                  <div class="rpg-progress-track">
+                    <div id="rpg-xp-fill" class="rpg-fill-xp" style="width: 0%;"></div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="hud-card">
-              <span>ACTIVE WORKERS</span>
-              <span id="hud-workers" class="hud-val">1</span>
-            </div>
-            <div class="hud-card">
-              <span>FILES FORGED</span>
-              <span id="hud-files" class="hud-val">0</span>
-            </div>
-            <div class="hud-card">
-              <span>MCP RPC CALLS</span>
-              <span id="hud-mcp" class="hud-val">0</span>
+
+            <div class="hud-row">
+              <div class="hud-card">
+                <span>EVENTS</span>
+                <span id="hud-events" class="hud-val">0</span>
+              </div>
+              <div class="hud-card">
+                <span>ACTIVE WORKERS</span>
+                <span id="hud-workers" class="hud-val">1</span>
+              </div>
+              <div class="hud-card">
+                <span>FILES FORGED</span>
+                <span id="hud-files" class="hud-val">0</span>
+              </div>
+              <div class="hud-card">
+                <span>MCP RPC CALLS</span>
+                <span id="hud-mcp" class="hud-val">0</span>
+              </div>
             </div>
           </div>
+
+          <!-- RPG Action Spells & MCP Hotbar -->
+          <div id="rpg-hotbar" class="rpg-hotbar"></div>
 
           <!-- Elevator Floor Selector Bar -->
           <div id="floor-selector-bar" class="floor-selector-bar"></div>
@@ -665,13 +720,14 @@ class App {
       this.showCheckpointModal(event);
     }
 
-    // Update stats
+    // Update stats & RPG Engine
     this.stats.totalEvents++;
     if (event.type === 'file.write') this.stats.filesWritten++;
     if (event.type === 'mcp.call') this.stats.mcpCalls++;
     if (event.type === 'command.run' || event.type === 'command.output') this.stats.testsRun++;
     this.stats.activeAgents = Math.max(1, this.workshopCanvas.floors.reduce((acc, fl) => acc + fl.workers.size, 0));
 
+    this.rpg.handleEvent(event);
     this.updateHUD();
 
     // If currently on live stream, process event
@@ -761,6 +817,109 @@ class App {
 
     while (feed.children.length > 50) {
       feed.removeChild(feed.lastChild!);
+    }
+  }
+
+  private setupRPG(): void {
+    this.renderRPGHotbar();
+    this.updateRPGStatsUI();
+
+    this.rpg.onLevelUp = (lvl, title) => {
+      confetti({
+        particleCount: 150,
+        spread: 100,
+        origin: { y: 0.4 },
+        colors: ['#fbbf24', '#f59e0b', '#38bdf8', '#a855f7'],
+      });
+      alert(`🎉 LEVEL UP! You reached Level ${lvl}: ${title}! Max Mana and Stats increased!`);
+      this.updateRPGStatsUI();
+    };
+
+    this.rpg.onStatsChanged = () => {
+      this.updateRPGStatsUI();
+      this.renderRPGHotbar();
+    };
+  }
+
+  private renderRPGHotbar(): void {
+    const bar = document.getElementById('rpg-hotbar');
+    if (!bar) return;
+
+    bar.innerHTML = '';
+
+    const classSkills = this.rpg.skills.filter((s) => s.category === 'skill');
+    const mcpSpells = this.rpg.skills.filter((s) => s.category === 'mcp');
+
+    classSkills.forEach((sk) => {
+      bar.appendChild(this.createSkillSlotElement(sk));
+    });
+
+    const divider = document.createElement('div');
+    divider.className = 'rpg-slot-divider';
+    bar.appendChild(divider);
+
+    mcpSpells.forEach((sk) => {
+      bar.appendChild(this.createSkillSlotElement(sk));
+    });
+  }
+
+  private createSkillSlotElement(sk: any): HTMLElement {
+    const slot = document.createElement('div');
+    slot.className = `rpg-slot ${sk.active ? 'active' : ''}`;
+    slot.title = `${sk.name} [${sk.keybind}]: ${sk.description} (${sk.manaCost} MP)`;
+
+    slot.innerHTML = `
+      <span class="rpg-keybind">${sk.keybind}</span>
+      <span class="rpg-icon">${sk.icon}</span>
+      <span class="rpg-cost">${sk.manaCost} MP</span>
+    `;
+
+    slot.onclick = () => {
+      this.renderInspector(`✨ Spell: ${sk.name}`, `${sk.description} | Mana Cost: ${sk.manaCost} MP`, {
+        category: sk.category,
+        keybind: sk.keybind,
+        cooldown: `${sk.cooldownMs}ms`,
+        lastUsed: sk.lastUsed ? new Date(sk.lastUsed).toLocaleTimeString() : 'Ready',
+      });
+    };
+
+    return slot;
+  }
+
+  private updateRPGStatsUI(): void {
+    const s = this.rpg.stats;
+    const lvlEl = document.getElementById('rpg-level');
+    const titleEl = document.getElementById('rpg-title');
+    const spellsEl = document.getElementById('rpg-spells');
+
+    const hpVal = document.getElementById('rpg-hp-val');
+    const hpFill = document.getElementById('rpg-hp-fill');
+
+    const mpVal = document.getElementById('rpg-mp-val');
+    const mpFill = document.getElementById('rpg-mp-fill');
+
+    const xpVal = document.getElementById('rpg-xp-val');
+    const xpFill = document.getElementById('rpg-xp-fill');
+
+    if (lvlEl) lvlEl.textContent = `Lv. ${s.level}`;
+    if (titleEl) titleEl.textContent = s.title;
+    if (spellsEl) spellsEl.textContent = `${s.spellsCast} Casts`;
+
+    if (hpVal && hpFill) {
+      hpVal.textContent = `${s.hp}/${s.maxHp} HP`;
+      hpFill.style.width = `${Math.min(100, (s.hp / s.maxHp) * 100)}%`;
+    }
+
+    if (mpVal && mpFill) {
+      const mpK = (s.mp / 1000).toFixed(0);
+      const maxMpK = (s.maxMp / 1000).toFixed(0);
+      mpVal.textContent = `${mpK}k/${maxMpK}k MP`;
+      mpFill.style.width = `${Math.min(100, (s.mp / s.maxMp) * 100)}%`;
+    }
+
+    if (xpVal && xpFill) {
+      xpVal.textContent = `${s.xp}/${s.nextLevelXp} XP`;
+      xpFill.style.width = `${Math.min(100, (s.xp / s.nextLevelXp) * 100)}%`;
     }
   }
 

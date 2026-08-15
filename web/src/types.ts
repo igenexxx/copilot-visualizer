@@ -44,6 +44,32 @@ export interface VisualizerEvent {
   payload?: Record<string, any>;
 }
 
+export interface RPGSkill {
+  id: string;
+  name: string;
+  category: 'skill' | 'mcp';
+  icon: string;
+  keybind: string;
+  description: string;
+  manaCost: number;
+  cooldownMs: number;
+  lastUsed: number;
+  active: boolean;
+}
+
+export interface RPGStats {
+  level: number;
+  title: string;
+  hp: number;
+  maxHp: number;
+  mp: number;
+  maxMp: number;
+  xp: number;
+  nextLevelXp: number;
+  totalTokensBurned: number;
+  spellsCast: number;
+}
+
 export interface WorkerAgent {
   id: string;
   role: AgentRole;
@@ -60,6 +86,7 @@ export interface WorkerAgent {
     text: string;
     expiresAt: number;
   };
+  rpg?: RPGStats;
 }
 
 export interface Workstation {
