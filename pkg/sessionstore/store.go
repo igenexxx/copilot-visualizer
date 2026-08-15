@@ -92,7 +92,7 @@ type Store struct {
 
 // New creates a new session store. If baseDir is empty, defaults to ~/.copilot-visualizer/sessions.
 func New(baseDir string) (*Store, error) {
-	return NewWithInterval(baseDir, 1500*time.Millisecond)
+	return NewWithInterval(baseDir, 15*time.Second)
 }
 
 // NewWithInterval creates a session store with a custom background flush interval.
@@ -111,7 +111,7 @@ func NewWithInterval(baseDir string, flushInterval time.Duration) (*Store, error
 	}
 
 	if flushInterval <= 0 {
-		flushInterval = 1500 * time.Millisecond
+		flushInterval = 15 * time.Second
 	}
 
 	s := &Store{

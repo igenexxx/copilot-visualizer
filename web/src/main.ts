@@ -50,6 +50,21 @@ class App {
     this.loadInitialHistory();
     this.setupRPG();
     this.setupTokenomics();
+
+    window.addEventListener('beforeunload', () => {
+      if (this.saveTimer) {
+        clearTimeout(this.saveTimer);
+        const statePayload = {
+          sessionId: this.activeSessionId,
+          source: this.tokenomics.activeSource || 'antigravity',
+          rpg: this.rpg.exportState(),
+          tokenomics: this.tokenomics.exportState(),
+          workstations: this.exportWorkstationsState(),
+          metrics: this.stats,
+        };
+        navigator.sendBeacon('/api/session-state', JSON.stringify(statePayload));
+      }
+    });
   }
 
   private initDOM(): void {
@@ -883,16 +898,20 @@ class App {
       clearTimeout(this.saveTimer);
     }
     this.saveTimer = setTimeout(async () => {
-      const statePayload = {
-        sessionId: this.activeSessionId,
-        source: this.tokenomics.activeSource || 'antigravity',
-        rpg: this.rpg.exportState(),
-        tokenomics: this.tokenomics.exportState(),
-        workstations: this.exportWorkstationsState(),
-        metrics: this.stats,
-      };
-      await this.client.saveSessionState(statePayload);
-    }, 1200);
+      await this.flushSessionState();
+    }, 15000);
+  }
+
+  private async flushSessionState(): Promise<void> {
+    const statePayload = {
+      sessionId: this.activeSessionId,
+      source: this.tokenomics.activeSource || 'antigravity',
+      rpg: this.rpg.exportState(),
+      tokenomics: this.tokenomics.exportState(),
+      workstations: this.exportWorkstationsState(),
+      metrics: this.stats,
+    };
+    await this.client.saveSessionState(statePayload);
   }
 
   private async restoreSessionState(sessionId: string): Promise<void> {
