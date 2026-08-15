@@ -100,6 +100,11 @@ export interface Workstation {
   pulseTime: number;
   lastEvent?: VisualizerEvent;
   itemsCount: number;
+  heatLevel: number; // 0..100%
+  temperatureC: number; // 24°C..850°C
+  wearPct: number; // 0..100%
+  totalOperations: number;
+  overheating: boolean;
 }
 
 export interface CheckpointItem {

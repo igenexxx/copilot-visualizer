@@ -73,95 +73,39 @@ export class WorkshopCanvas {
 
   private createDefaultStations(level: number): Map<StationType, Workstation> {
     const stations = new Map<StationType, Workstation>();
+    const createStation = (
+      type: StationType,
+      name: string,
+      gridX: number,
+      gridY: number,
+      color: string,
+      description: string
+    ): Workstation => ({
+      type,
+      name,
+      gridX,
+      gridY,
+      color,
+      description,
+      active: false,
+      pulseTime: 0,
+      itemsCount: 0,
+      heatLevel: 0,
+      temperatureC: 24,
+      wearPct: 0,
+      totalOperations: 0,
+      overheating: false,
+    });
+
     const list: Workstation[] = [
-      {
-        type: 'foreman_desk',
-        name: level === 0 ? 'Master Command Desk' : `Subagent Desk ${level}F`,
-        gridX: 5,
-        gridY: 5,
-        color: '#f59e0b',
-        description: 'Orchestration, planning & blueprint architecture',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
-      {
-        type: 'filing_vault',
-        name: 'Codebase Vault',
-        gridX: 2,
-        gridY: 2,
-        color: '#3b82f6',
-        description: 'File inspections, reading & document navigation',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
-      {
-        type: 'search_radar',
-        name: 'Search Radar',
-        gridX: 2,
-        gridY: 8,
-        color: '#06b6d4',
-        description: 'Codebase symbol index & pattern scanning',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
-      {
-        type: 'cnc_lathe',
-        name: 'CNC Machining Lathe',
-        gridX: 8,
-        gridY: 2,
-        color: '#ec4899',
-        description: 'Code forging, patch editing & file modification',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
-      {
-        type: 'test_furnace',
-        name: 'Test Range & Furnace',
-        gridX: 8,
-        gridY: 8,
-        color: '#10b981',
-        description: 'Command execution, test suites & build verification',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
-      {
-        type: 'phone_booth',
-        name: 'MCP Dispatch',
-        gridX: 1,
-        gridY: 5,
-        color: '#a855f7',
-        description: 'External MCP Server bridges & remote RPC phone lines',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
-      {
-        type: 'conveyor',
-        name: 'Conveyor & Elevator',
-        gridX: 9,
-        gridY: 5,
-        color: '#14b8a6',
-        description: 'Inter-floor transport & shipping dock',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
-      {
-        type: 'security_gate',
-        name: 'Security Gate',
-        gridX: 5,
-        gridY: 9,
-        color: '#ef4444',
-        description: 'Human-in-the-Loop approval gate & checkpoint barrier',
-        active: false,
-        pulseTime: 0,
-        itemsCount: 0,
-      },
+      createStation('foreman_desk', level === 0 ? 'Master Command Desk' : `Subagent Desk ${level}F`, 5, 5, '#f59e0b', 'Orchestration, planning & blueprint architecture'),
+      createStation('filing_vault', 'Codebase Vault', 2, 2, '#3b82f6', 'File inspections, reading & document navigation'),
+      createStation('search_radar', 'Search Radar', 2, 8, '#06b6d4', 'Codebase symbol index & pattern scanning'),
+      createStation('cnc_lathe', 'CNC Machining Lathe', 8, 2, '#ec4899', 'Code forging, patch editing & file modification'),
+      createStation('test_furnace', 'Test Range & Furnace', 8, 8, '#10b981', 'Command execution, test suites & build verification'),
+      createStation('phone_booth', 'MCP Dispatch', 1, 5, '#a855f7', 'External MCP Server bridges & remote RPC phone lines'),
+      createStation('conveyor', 'Conveyor & Elevator', 9, 5, '#14b8a6', 'Inter-floor transport & shipping dock'),
+      createStation('security_gate', 'Security Gate', 5, 9, '#ef4444', 'Human-in-the-Loop approval gate & checkpoint barrier'),
     ];
 
     list.forEach((st) => stations.set(st.type, st));
@@ -384,6 +328,29 @@ export class WorkshopCanvas {
       targetStation.pulseTime = 1.0;
       targetStation.lastEvent = evt;
       targetStation.itemsCount++;
+      targetStation.totalOperations++;
+
+      // Machine Wear & Heat calculation
+      let heatBoost = 12;
+      let wearBoost = 0.6;
+      if (evt.station === 'cnc_lathe') {
+        heatBoost = 24;
+        wearBoost = 1.6;
+      } else if (evt.station === 'test_furnace') {
+        heatBoost = 28;
+        wearBoost = 1.8;
+      } else if (evt.station === 'search_radar') {
+        heatBoost = 18;
+        wearBoost = 1.1;
+      } else if (evt.station === 'filing_vault') {
+        heatBoost = 14;
+        wearBoost = 0.8;
+      }
+
+      targetStation.heatLevel = Math.min(100, targetStation.heatLevel + heatBoost);
+      targetStation.wearPct = Math.min(100, targetStation.wearPct + wearBoost);
+      targetStation.temperatureC = Math.round(24 + (targetStation.heatLevel / 100) * 780);
+      targetStation.overheating = targetStation.heatLevel >= 70;
 
       this.spawnStationEffects(evt.station, targetStation.gridX, targetStation.gridY, floor.level);
     }
@@ -514,10 +481,31 @@ export class WorkshopCanvas {
         }
       }
 
-      // Decay station pulse
+      // Decay station pulse and thermal load
       for (const st of fl.workstations.values()) {
         if (st.pulseTime > 0) {
           st.pulseTime = Math.max(0, st.pulseTime - 0.015);
+        }
+        if (st.heatLevel > 0) {
+          st.heatLevel = Math.max(0, st.heatLevel - 0.04);
+          st.temperatureC = Math.round(24 + (st.heatLevel / 100) * 780);
+          st.overheating = st.heatLevel >= 70;
+
+          // Smoke / steam puffs when machine is warm or hot
+          if (st.heatLevel > 28 && Math.random() < 0.08) {
+            const pos = this.isoToScreen(st.gridX, st.gridY, fl.level, 16);
+            this.particles.push({
+              x: pos.x + (Math.random() - 0.5) * 10,
+              y: pos.y,
+              vx: (Math.random() - 0.5) * 0.6,
+              vy: -Math.random() * 1.5 - 0.5,
+              color: st.overheating ? (Math.random() > 0.4 ? '#ef4444' : '#f97316') : '#94a3b8',
+              size: Math.random() * 3 + 2,
+              life: 1.0,
+              maxLife: 1.0,
+              floorLevel: fl.level,
+            });
+          }
         }
       }
     }
@@ -531,8 +519,8 @@ export class WorkshopCanvas {
       const p = this.particles[i];
       p.x += p.vx;
       p.y += p.vy;
-      p.vy += 0.1;
-      p.life -= 0.03;
+      p.vy += 0.04;
+      p.life -= 0.025;
       if (p.life <= 0) {
         this.particles.splice(i, 1);
       }
@@ -540,6 +528,33 @@ export class WorkshopCanvas {
 
     this.conveyorOffset = (this.conveyorOffset + 0.04) % 1;
     this.radarAngle += 0.05;
+  }
+
+  public cooldownStation(stationType: StationType, floorLevel: number = 0): void {
+    const floor = this.floors[floorLevel] || this.floors[0];
+    if (!floor) return;
+    const st = floor.workstations.get(stationType);
+    if (!st) return;
+
+    st.heatLevel = 0;
+    st.temperatureC = 24;
+    st.overheating = false;
+
+    // Burst of white steam particles
+    const pos = this.isoToScreen(st.gridX, st.gridY, floor.level, 10);
+    for (let i = 0; i < 20; i++) {
+      this.particles.push({
+        x: pos.x + (Math.random() - 0.5) * 16,
+        y: pos.y,
+        vx: (Math.random() - 0.5) * 2.5,
+        vy: -Math.random() * 3.5 - 1,
+        color: Math.random() > 0.3 ? '#e2e8f0' : '#38bdf8',
+        size: Math.random() * 5 + 2,
+        life: 1.0,
+        maxLife: 1.0,
+        floorLevel: floor.level,
+      });
+    }
   }
 
   private render(): void {
@@ -708,6 +723,20 @@ export class WorkshopCanvas {
 
     this.ctx.save();
 
+    // 1. Thermal Heatmap Aura
+    if (st.heatLevel > 15) {
+      const heatFactor = st.heatLevel / 100;
+      const auraRadius = (22 + heatFactor * 16) * this.zoom;
+      const auraColor = st.overheating
+        ? `rgba(239, 68, 68, ${0.25 + heatFactor * 0.35})`
+        : `rgba(245, 158, 11, ${0.15 + heatFactor * 0.25})`;
+
+      this.ctx.beginPath();
+      this.ctx.ellipse(pos.x, pos.y, auraRadius, auraRadius * 0.58, 0, 0, Math.PI * 2);
+      this.ctx.fillStyle = auraColor;
+      this.ctx.fill();
+    }
+
     if (st.pulseTime > 0 || isHovered || isSelected) {
       this.ctx.beginPath();
       this.ctx.ellipse(pos.x, pos.y, 24 * this.zoom, 14 * this.zoom, 0, 0, Math.PI * 2);
@@ -721,15 +750,33 @@ export class WorkshopCanvas {
 
     this.drawStationStructure(st, pos.x, pos.y);
 
+    // 2. Station Name
     this.ctx.font = `${Math.max(7, 9 * this.zoom)}px Inter, monospace`;
     this.ctx.fillStyle = '#94a3b8';
     this.ctx.textAlign = 'center';
     this.ctx.fillText(st.name, pos.x, pos.y + 20 * this.zoom);
 
+    // 3. Thermal Gauge / Overheat Badge
+    if (st.heatLevel > 20) {
+      const isCritical = st.overheating;
+      const badgeText = isCritical ? `🔥 ${st.temperatureC}°C [OVERHEAT]` : `🌡️ ${st.temperatureC}°C`;
+      this.ctx.font = `bold ${Math.max(6, 8 * this.zoom)}px monospace`;
+      this.ctx.fillStyle = isCritical ? '#ef4444' : '#f59e0b';
+      this.ctx.fillText(badgeText, pos.x, pos.y - 28 * this.zoom);
+
+      // Mini Wear bar
+      const barW = 28 * this.zoom;
+      const barH = 3 * this.zoom;
+      this.ctx.fillStyle = 'rgba(15, 23, 42, 0.8)';
+      this.ctx.fillRect(pos.x - barW / 2, pos.y - 23 * this.zoom, barW, barH);
+      this.ctx.fillStyle = isCritical ? '#ef4444' : '#f59e0b';
+      this.ctx.fillRect(pos.x - barW / 2, pos.y - 23 * this.zoom, barW * (st.heatLevel / 100), barH);
+    }
+
     if (st.itemsCount > 0) {
       this.ctx.font = `bold ${Math.max(6, 8 * this.zoom)}px monospace`;
       this.ctx.fillStyle = st.color;
-      this.ctx.fillText(`⚡ ${st.itemsCount}`, pos.x, pos.y + 30 * this.zoom);
+      this.ctx.fillText(`⚡ ${st.itemsCount} ops (Wear: ${st.wearPct.toFixed(0)}%)`, pos.x, pos.y + 30 * this.zoom);
     }
 
     this.ctx.restore();

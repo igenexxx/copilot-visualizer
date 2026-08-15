@@ -6,6 +6,7 @@ import { WorkshopCanvas } from './canvas/workshop';
 import { FlowGraphCanvas } from './canvas/graph';
 import { RPGEngine } from './rpg/engine';
 import { TokenomicsTracker } from './tokenomics/tracker';
+import { SoundscapeEngine } from './audio/soundscape';
 
 class App {
   private client: VisualizerClient;
@@ -13,6 +14,7 @@ class App {
   private graphCanvas!: FlowGraphCanvas;
   private rpg: RPGEngine;
   private tokenomics: TokenomicsTracker;
+  private soundscape: SoundscapeEngine;
 
   private allEvents: VisualizerEvent[] = [];
   private currentPlaybackIndex = -1;
@@ -36,6 +38,7 @@ class App {
     this.client = new VisualizerClient();
     this.rpg = new RPGEngine();
     this.tokenomics = new TokenomicsTracker();
+    this.soundscape = new SoundscapeEngine();
     this.initDOM();
     this.initCanvases();
     this.setupSubscriptions();
@@ -64,6 +67,12 @@ class App {
         </div>
 
         <div class="header-right">
+          <!-- Web Audio Soundscape Control -->
+          <div class="sound-control-group" style="display: flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-color); padding: 2px 6px; border-radius: 6px;">
+            <button id="btn-sound-toggle" class="control-btn" style="padding: 2px 5px; font-size: 11px;" title="Toggle 8-Bit Audio Soundscape">🔊</button>
+            <input id="sound-vol-slider" type="range" min="0" max="1" step="0.05" value="0.6" style="width: 42px; height: 4px; cursor: pointer;" title="Sound Volume">
+          </div>
+
           <button id="btn-estop" class="btn-estop" title="Emergency Stop Lever">
             <span>🚨</span>
             <span id="estop-label">E-STOP BRAKE</span>
@@ -359,7 +368,39 @@ class App {
     this.graphCanvas = new FlowGraphCanvas(grCanvasEl);
 
     this.workshopCanvas.onSelectElement = (type, data) => {
-      this.renderInspector(type === 'station' ? `⚙️ ${data.name}` : `👷 ${data.name}`, data.description || 'Specialist agent on duty', data.lastEvent?.payload);
+      if (type === 'station') {
+        const thermalStatus = data.overheating ? '🔥 OVERHEATING' : data.heatLevel > 30 ? '🌡️ WARM' : '❄️ OPTIMAL';
+        this.renderInspector(
+          `⚙️ ${data.name}`,
+          `${data.description}`,
+          {
+            temperature: `${data.temperatureC}°C (${thermalStatus})`,
+            heatLevel: `${data.heatLevel.toFixed(1)}%`,
+            wearAndTear: `${data.wearPct.toFixed(1)}%`,
+            totalOperations: `${data.totalOperations} cycles`,
+            itemsCrafted: data.itemsCount,
+            lastOperation: data.lastEvent?.title || 'None',
+          }
+        );
+
+        const pane = document.getElementById('inspector-content');
+        if (pane) {
+          const btnCool = document.createElement('button');
+          btnCool.className = 'intercom-send-btn';
+          btnCool.style.cssText = 'background: #06b6d4; color: #000; font-weight: 700; width: 100%; margin-top: 12px; padding: 6px;';
+          btnCool.textContent = '🧊 VENT STEAM & COOLDOWN (24°C)';
+          btnCool.onclick = () => {
+            const flLevel = this.workshopCanvas.activeFloorIndex === 'all' ? 0 : this.workshopCanvas.activeFloorIndex;
+            this.workshopCanvas.cooldownStation(data.type, flLevel);
+            this.soundscape.playSteamVent();
+            btnCool.textContent = '✅ MACHINE COOLED (24°C)';
+            btnCool.disabled = true;
+          };
+          pane.appendChild(btnCool);
+        }
+      } else {
+        this.renderInspector(`👷 ${data.name}`, data.description || 'Specialist agent on duty', data.lastEvent?.payload);
+      }
     };
 
     this.graphCanvas.onSelectNode = (node) => {
@@ -611,6 +652,29 @@ class App {
       await this.client.ingestEvent(randomEvt);
     });
 
+    // Web Audio Soundscape Controls
+    const btnSound = document.getElementById('btn-sound-toggle');
+    const volSlider = document.getElementById('sound-vol-slider') as HTMLInputElement;
+
+    if (btnSound && volSlider) {
+      volSlider.value = String(this.soundscape.getVolume());
+      btnSound.textContent = this.soundscape.getMuted() ? '🔇' : '🔊';
+
+      btnSound.addEventListener('click', () => {
+        const isMuted = this.soundscape.toggleMute();
+        btnSound.textContent = isMuted ? '🔇' : '🔊';
+      });
+
+      volSlider.addEventListener('input', () => {
+        const vol = parseFloat(volSlider.value);
+        this.soundscape.setVolume(vol);
+        if (vol > 0 && this.soundscape.getMuted()) {
+          this.soundscape.setMuted(false);
+          btnSound.textContent = '🔊';
+        }
+      });
+    }
+
     // Clear feed
     const btnClear = document.getElementById('btn-clear')!;
     btnClear.addEventListener('click', () => {
@@ -797,10 +861,18 @@ class App {
     this.tokenomics.handleEvent(event);
     this.updateHUD();
 
-    // If currently on live stream, process event
+    // If currently on live stream, process event and play procedural audio
     if (this.currentPlaybackIndex < 0) {
       this.workshopCanvas.handleEvent(event);
       this.graphCanvas.handleEvent(event);
+
+      // Web Audio Soundscape Dispatch
+      if (event.type === 'file.write') this.soundscape.playLaserCut();
+      else if (event.type === 'agent.think') this.soundscape.playThinkClick();
+      else if (event.type === 'mcp.call') this.soundscape.playPhoneRing();
+      else if (event.type === 'intervention.prompt') this.soundscape.playIntercom();
+      else if (event.type === 'command.run') this.soundscape.playTestRun(true);
+      else if (event.type === 'emergency.stop') this.soundscape.playEmergencyStop();
     }
 
     // Celebrate session completion with confetti
@@ -896,6 +968,7 @@ class App {
     this.updateRPGStatsUI();
 
     this.rpg.onLevelUp = (lvl, title) => {
+      this.soundscape.playLevelUp();
       confetti({
         particleCount: 160,
         spread: 100,
