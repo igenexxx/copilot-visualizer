@@ -86,6 +86,12 @@ class App {
           </div>
           <div id="graph-container" class="canvas-container" style="display: none;">
             <canvas id="graph-canvas"></canvas>
+            <div id="graph-filter-bar" class="graph-filter-bar">
+              <button class="filter-btn active" data-mode="all">⚡ Full Semantic DAG</button>
+              <button class="filter-btn" data-mode="files">📁 File Impact</button>
+              <button class="filter-btn" data-mode="agents">🌳 Agent Hierarchy</button>
+              <button class="filter-btn" data-mode="services">📞 MCP Services</button>
+            </div>
           </div>
 
           <div class="hud-overlay">
@@ -191,7 +197,11 @@ class App {
     };
 
     this.graphCanvas.onSelectNode = (node) => {
-      this.renderInspector(`🕸️ ${node.label}`, `Group: ${node.group.toUpperCase()} | ID: ${node.id}`, { sublabel: node.sublabel, timestamp: node.timestamp });
+      this.renderInspector(
+        `${node.icon} ${node.title}`,
+        `${node.subtitle} (${node.badge})`,
+        { ...node.metrics, ...node.details }
+      );
     };
 
     this.workshopCanvas.onFloorChanged = () => {
@@ -264,6 +274,18 @@ class App {
       this.graphCanvas.centerView();
     });
     btnSplit.addEventListener('click', () => setView('split'));
+
+    // Graph Filters
+    document.querySelectorAll('.filter-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mode = btn.getAttribute('data-mode') as any;
+        if (mode) {
+          this.graphCanvas.setFilterMode(mode);
+        }
+      });
+    });
 
     const btnSpread = document.getElementById('btn-spread-graph')!;
     btnSpread.addEventListener('click', () => {

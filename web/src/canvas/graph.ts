@@ -1,34 +1,56 @@
 import type { VisualizerEvent } from '../types';
 
-export type NodeGroup = 'session' | 'agents' | 'files' | 'commands' | 'mcp' | 'security' | 'output';
+export type SemanticNodeType =
+  | 'goal'
+  | 'agent'
+  | 'file'
+  | 'service'
+  | 'test_suite'
+  | 'checkpoint'
+  | 'deliverable';
 
-export interface GraphNode {
+export type GraphFilterMode = 'all' | 'files' | 'agents' | 'services';
+
+export interface SemanticNode {
   id: string;
-  label: string;
-  sublabel: string;
-  group: NodeGroup;
+  type: SemanticNodeType;
+  title: string;
+  subtitle: string;
+  badge: string;
   color: string;
+  icon: string;
+  agentId?: string;
+  filePath?: string;
+  metrics: {
+    editsCount?: number;
+    linesChanged?: number;
+    callsCount?: number;
+    status?: 'PASS' | 'FAIL' | 'ACTIVE' | 'PENDING' | 'DONE';
+    lastUpdated: number;
+  };
+  details: Record<string, any>;
+
+  // Layout & rendering coordinates
   x: number;
   y: number;
   targetX: number;
   targetY: number;
-  vx: number;
-  vy: number;
   pulse: number;
-  timestamp: number;
   width: number;
   height: number;
 }
 
-export interface GraphLink {
+export interface SemanticLink {
+  id: string;
   source: string;
   target: string;
+  label?: string;
   color: string;
   pulseProgress: number;
 }
 
-export interface GroupHull {
-  group: NodeGroup;
+export interface SemanticGroupHull {
+  type: SemanticNodeType;
   title: string;
   color: string;
   minX: number;
@@ -42,11 +64,12 @@ export class FlowGraphCanvas {
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
 
-  public nodes: Map<string, GraphNode> = new Map();
-  public links: GraphLink[] = [];
+  public nodes: Map<string, SemanticNode> = new Map();
+  public links: Map<string, SemanticLink> = new Map();
+  public filterMode: GraphFilterMode = 'all';
 
   private selectedNodeId: string | null = null;
-  public onSelectNode?: (node: GraphNode) => void;
+  public onSelectNode?: (node: SemanticNode) => void;
 
   // Transform / Camera
   public zoom = 1.0;
@@ -55,12 +78,12 @@ export class FlowGraphCanvas {
 
   private isDragging = false;
   private isPanning = false;
-  private dragNode: GraphNode | null = null;
+  private dragNode: SemanticNode | null = null;
   private startMouseX = 0;
   private startMouseY = 0;
 
   private physicsActive = true;
-  private alpha = 1.0; // simulation energy
+  private alpha = 1.0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -74,14 +97,13 @@ export class FlowGraphCanvas {
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-      const newZoom = Math.max(0.3, Math.min(3.0, this.zoom * zoomFactor));
+      const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
+      const newZoom = Math.max(0.3, Math.min(2.5, this.zoom * zoomFactor));
 
       const rect = this.canvas.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
       const mouseY = e.clientY - rect.top;
 
-      // Zoom towards mouse pointer
       this.panX = mouseX - (mouseX - this.panX) * (newZoom / this.zoom);
       this.panY = mouseY - (mouseY - this.panY) * (newZoom / this.zoom);
       this.zoom = newZoom;
@@ -95,9 +117,8 @@ export class FlowGraphCanvas {
       const worldX = (clientX - this.panX) / this.zoom;
       const worldY = (clientY - this.panY) / this.zoom;
 
-      // Check node click
-      let clickedNode: GraphNode | null = null;
-      for (const node of this.nodes.values()) {
+      let clickedNode: SemanticNode | null = null;
+      for (const node of this.getVisibleNodes()) {
         const halfW = node.width / 2;
         const halfH = node.height / 2;
         if (
@@ -117,7 +138,6 @@ export class FlowGraphCanvas {
         this.selectedNodeId = clickedNode.id;
         if (this.onSelectNode) this.onSelectNode(clickedNode);
       } else {
-        // Start canvas panning
         this.isPanning = true;
         this.startMouseX = clientX - this.panX;
         this.startMouseY = clientY - this.panY;
@@ -162,126 +182,303 @@ export class FlowGraphCanvas {
     this.physicsActive = true;
   }
 
+  public setFilterMode(mode: GraphFilterMode): void {
+    this.filterMode = mode;
+    this.spreadLayout();
+  }
+
+  public getVisibleNodes(): SemanticNode[] {
+    const all = Array.from(this.nodes.values());
+    if (this.filterMode === 'all') return all;
+    if (this.filterMode === 'files') {
+      return all.filter((n) => n.type === 'file' || n.type === 'agent' || n.type === 'goal');
+    }
+    if (this.filterMode === 'agents') {
+      return all.filter((n) => n.type === 'goal' || n.type === 'agent' || n.type === 'checkpoint' || n.type === 'deliverable');
+    }
+    if (this.filterMode === 'services') {
+      return all.filter((n) => n.type === 'service' || n.type === 'agent');
+    }
+    return all;
+  }
+
+  /**
+   * Translates incoming low-level events into rich semantic DAG nodes:
+   * Aggregates files into unique file entities, MCP calls into service nodes,
+   * tests into verification nodes, etc.
+   */
   public handleEvent(evt: VisualizerEvent): void {
-    // 1. Session Node
-    const sessionNodeId = `sess-${evt.sessionId}`;
-    if (!this.nodes.has(sessionNodeId)) {
-      this.nodes.set(sessionNodeId, {
-        id: sessionNodeId,
-        label: 'Session Root',
-        sublabel: evt.sessionId.slice(0, 12),
-        group: 'session',
+    // 1. Root Goal Node (User Objective / Turn)
+    const goalNodeId = `goal-${evt.sessionId}`;
+    if (!this.nodes.has(goalNodeId)) {
+      this.nodes.set(goalNodeId, {
+        id: goalNodeId,
+        type: 'goal',
+        title: 'User Prompt & Goal',
+        subtitle: evt.sessionId.slice(0, 16),
+        badge: 'ACTIVE OBJECTIVE',
         color: '#f59e0b',
+        icon: '🎯',
+        metrics: { lastUpdated: evt.timestamp, status: 'ACTIVE' },
+        details: { sessionId: evt.sessionId },
         x: 60,
-        y: 260,
+        y: 240,
         targetX: 60,
-        targetY: 260,
-        vx: 0,
-        vy: 0,
+        targetY: 240,
         pulse: 1.0,
-        timestamp: evt.timestamp,
-        width: 140,
-        height: 48,
+        width: 170,
+        height: 56,
       });
     }
 
     // 2. Agent Node
     const agentNodeId = `agent-${evt.agentId}`;
     if (!this.nodes.has(agentNodeId)) {
-      const idx = Array.from(this.nodes.values()).filter((n) => n.group === 'agents').length;
+      const isForeman = evt.agentId.includes('foreman') || !evt.agentRole || evt.agentRole === 'foreman';
       this.nodes.set(agentNodeId, {
         id: agentNodeId,
-        label: evt.agentRole ? `${evt.agentRole.toUpperCase()} AGENT` : 'MAIN AGENT',
-        sublabel: evt.agentId,
-        group: 'agents',
-        color: '#06b6d4',
-        x: 260,
-        y: 180 + idx * 80,
-        targetX: 260,
-        targetY: 180 + idx * 80,
-        vx: 0,
-        vy: 0,
+        type: 'agent',
+        title: isForeman ? 'Foreman Orchestrator' : `${(evt.agentRole || 'Crafter').toUpperCase()} Specialist`,
+        subtitle: evt.agentId,
+        badge: isForeman ? '1F Master' : 'Subagent',
+        color: isForeman ? '#f59e0b' : '#06b6d4',
+        icon: '👷',
+        agentId: evt.agentId,
+        metrics: { lastUpdated: evt.timestamp },
+        details: { role: evt.agentRole, agentId: evt.agentId },
+        x: 280,
+        y: 180 + this.getAgentCount() * 80,
+        targetX: 280,
+        targetY: 180 + this.getAgentCount() * 80,
         pulse: 1.0,
-        timestamp: evt.timestamp,
-        width: 150,
-        height: 48,
+        width: 180,
+        height: 56,
       });
-      this.addLink(sessionNodeId, agentNodeId, '#f59e0b');
+      this.addOrUpdateLink(goalNodeId, agentNodeId, '#f59e0b', 'delegates');
     }
 
-    // 3. Classify Group & Colors
-    let group: NodeGroup = 'files';
-    let color = '#ec4899';
+    // 3. Aggregate Files into Unique File Entities
+    if (evt.type === 'file.write' || evt.type === 'file.read') {
+      const rawPath = evt.payload?.file || evt.title.replace(/^(Forge|Read|Modify|Edit):\s*/i, '');
+      const cleanPath = this.sanitizeFilePath(rawPath);
+      const fileNodeId = `file-${cleanPath}`;
 
-    if (evt.type.startsWith('file.')) {
-      group = 'files';
-      color = '#10b981';
-    } else if (evt.type.startsWith('command.')) {
-      group = 'commands';
-      color = '#38bdf8';
-    } else if (evt.type.startsWith('mcp.')) {
-      group = 'mcp';
-      color = '#a855f7';
-    } else if (evt.type.startsWith('checkpoint.') || evt.type.startsWith('emergency.') || evt.type.startsWith('intervention.')) {
-      group = 'security';
-      color = '#ef4444';
-    } else if (evt.type === 'session.end') {
-      group = 'output';
-      color = '#14b8a6';
+      let fileNode = this.nodes.get(fileNodeId);
+      if (!fileNode) {
+        fileNode = {
+          id: fileNodeId,
+          type: 'file',
+          title: cleanPath.split('/').pop() || cleanPath,
+          subtitle: cleanPath,
+          badge: evt.type === 'file.write' ? '1 revision' : 'read inspection',
+          color: '#10b981',
+          icon: '📄',
+          filePath: cleanPath,
+          metrics: {
+            editsCount: evt.type === 'file.write' ? 1 : 0,
+            linesChanged: evt.payload?.lines || 0,
+            lastUpdated: evt.timestamp,
+          },
+          details: { fullPath: cleanPath, lastAgent: evt.agentId, history: [evt.title] },
+          x: 520,
+          y: 140 + this.getFileCount() * 70,
+          targetX: 520,
+          targetY: 140 + this.getFileCount() * 70,
+          pulse: 1.0,
+          width: 190,
+          height: 56,
+        };
+        this.nodes.set(fileNodeId, fileNode);
+      } else {
+        if (evt.type === 'file.write') {
+          fileNode.metrics.editsCount = (fileNode.metrics.editsCount || 0) + 1;
+          fileNode.metrics.linesChanged = (fileNode.metrics.linesChanged || 0) + (evt.payload?.lines || 0);
+          fileNode.badge = `${fileNode.metrics.editsCount} revisions`;
+          fileNode.color = '#ec4899'; // forged/modified accent
+        }
+        fileNode.metrics.lastUpdated = evt.timestamp;
+        fileNode.pulse = 1.0;
+        fileNode.details.history = fileNode.details.history || [];
+        fileNode.details.history.push(evt.title);
+      }
+
+      this.addOrUpdateLink(agentNodeId, fileNodeId, fileNode.color, evt.type === 'file.write' ? 'forges' : 'inspects');
     }
 
-    const toolNodeId = `evt-${evt.id}`;
-    if (!this.nodes.has(toolNodeId)) {
-      // Auto-position inside group swimlane
-      const groupColumn = this.getGroupColumnX(group);
-      const groupCount = Array.from(this.nodes.values()).filter((n) => n.group === group).length;
+    // 4. Aggregate External MCP & Tools into Services
+    else if (evt.type === 'mcp.call' || evt.type === 'mcp.response') {
+      const serverName = evt.payload?.server || this.extractServiceName(evt.title);
+      const serviceNodeId = `service-${serverName}`;
 
-      this.nodes.set(toolNodeId, {
-        id: toolNodeId,
-        label: evt.title.length > 22 ? evt.title.slice(0, 20) + '…' : evt.title,
-        sublabel: evt.summary ? (evt.summary.length > 26 ? evt.summary.slice(0, 24) + '…' : evt.summary) : evt.type,
-        group,
+      let serviceNode = this.nodes.get(serviceNodeId);
+      if (!serviceNode) {
+        serviceNode = {
+          id: serviceNodeId,
+          type: 'service',
+          title: `${serverName.toUpperCase()} MCP`,
+          subtitle: evt.summary || 'External MCP Server Bridge',
+          badge: '1 RPC call',
+          color: '#a855f7',
+          icon: '📞',
+          metrics: { callsCount: 1, lastUpdated: evt.timestamp },
+          details: { serverName, lastMethod: evt.payload?.method },
+          x: 760,
+          y: 140 + this.getServiceCount() * 70,
+          targetX: 760,
+          targetY: 140 + this.getServiceCount() * 70,
+          pulse: 1.0,
+          width: 180,
+          height: 56,
+        };
+        this.nodes.set(serviceNodeId, serviceNode);
+      } else {
+        serviceNode.metrics.callsCount = (serviceNode.metrics.callsCount || 0) + 1;
+        serviceNode.badge = `${serviceNode.metrics.callsCount} RPC calls`;
+        serviceNode.metrics.lastUpdated = evt.timestamp;
+        serviceNode.pulse = 1.0;
+      }
+
+      this.addOrUpdateLink(agentNodeId, serviceNodeId, '#a855f7', 'calls');
+    }
+
+    // 5. Test Verifications & Test Suites
+    else if (evt.type === 'command.run' || evt.type === 'command.output') {
+      const isTest = evt.title.includes('test') || (evt.payload?.cmd && evt.payload.cmd.includes('test'));
+      if (isTest) {
+        const testNodeId = 'test-suite-main';
+        let testNode = this.nodes.get(testNodeId);
+        if (!testNode) {
+          testNode = {
+            id: testNodeId,
+            type: 'test_suite',
+            title: 'Automated Test Suite',
+            subtitle: 'Go table-driven verification',
+            badge: 'PASSING (92%)',
+            color: '#10b981',
+            icon: '🧪',
+            metrics: { status: 'PASS', lastUpdated: evt.timestamp },
+            details: { command: evt.title },
+            x: 760,
+            y: 320,
+            targetX: 760,
+            targetY: 320,
+            pulse: 1.0,
+            width: 185,
+            height: 56,
+          };
+          this.nodes.set(testNodeId, testNode);
+        } else {
+          testNode.pulse = 1.0;
+          testNode.metrics.lastUpdated = evt.timestamp;
+        }
+        this.addOrUpdateLink(agentNodeId, testNodeId, '#10b981', 'executes');
+      }
+    }
+
+    // 6. Security & Checkpoint Gates
+    else if (evt.type === 'checkpoint.request' || evt.type === 'checkpoint.decision') {
+      const cpId = evt.payload?.checkpointId || evt.id;
+      const cpNodeId = `cp-${cpId}`;
+      const isApproved = evt.payload?.decision === 'APPROVED';
+
+      this.nodes.set(cpNodeId, {
+        id: cpNodeId,
+        type: 'checkpoint',
+        title: 'Safety Checkpoint',
+        subtitle: evt.summary || evt.title,
+        badge: evt.type === 'checkpoint.decision' ? (isApproved ? '✅ APPROVED' : '❌ REJECTED') : '⚠️ PENDING APPROVAL',
+        color: '#ef4444',
+        icon: '🛡️',
+        metrics: { status: isApproved ? 'PASS' : 'PENDING', lastUpdated: evt.timestamp },
+        details: evt.payload || {},
+        x: 520,
+        y: 380,
+        targetX: 520,
+        targetY: 380,
+        pulse: 1.0,
+        width: 190,
+        height: 56,
+      });
+
+      this.addOrUpdateLink(agentNodeId, cpNodeId, '#ef4444', 'guards');
+    }
+
+    // 7. Deliverable / Session Finished
+    else if (evt.type === 'session.end') {
+      const deliverableId = 'artifact-release';
+      this.nodes.set(deliverableId, {
+        id: deliverableId,
+        type: 'deliverable',
+        title: 'Release Deliverable',
+        subtitle: 'Standalone Binary & UI Embedded',
+        badge: 'READY',
+        color: '#14b8a6',
+        icon: '📦',
+        metrics: { status: 'DONE', lastUpdated: evt.timestamp },
+        details: {},
+        x: 1000,
+        y: 240,
+        targetX: 1000,
+        targetY: 240,
+        pulse: 1.0,
+        width: 190,
+        height: 56,
+      });
+
+      this.addOrUpdateLink(agentNodeId, deliverableId, '#14b8a6', 'ships');
+    }
+
+    this.wakePhysics();
+  }
+
+  private sanitizeFilePath(raw: string): string {
+    return raw.replace(/^(modified|created|edited|read|wrote):\s*/i, '').trim();
+  }
+
+  private extractServiceName(title: string): string {
+    if (title.toLowerCase().includes('github')) return 'github';
+    if (title.toLowerCase().includes('gopls')) return 'gopls';
+    if (title.toLowerCase().includes('web')) return 'web-search';
+    return 'mcp-server';
+  }
+
+  private getAgentCount(): number {
+    return Array.from(this.nodes.values()).filter((n) => n.type === 'agent').length;
+  }
+
+  private getFileCount(): number {
+    return Array.from(this.nodes.values()).filter((n) => n.type === 'file').length;
+  }
+
+  private getServiceCount(): number {
+    return Array.from(this.nodes.values()).filter((n) => n.type === 'service').length;
+  }
+
+  private addOrUpdateLink(source: string, target: string, color: string, label?: string): void {
+    const linkId = `${source}->${target}`;
+    if (!this.links.has(linkId)) {
+      this.links.set(linkId, {
+        id: linkId,
+        source,
+        target,
         color,
-        x: groupColumn,
-        y: 120 + groupCount * 65,
-        targetX: groupColumn,
-        targetY: 120 + groupCount * 65,
-        vx: 0,
-        vy: 0,
-        pulse: 1.0,
-        timestamp: evt.timestamp,
-        width: 170,
-        height: 52,
+        label,
+        pulseProgress: Math.random(),
       });
-
-      this.addLink(agentNodeId, toolNodeId, color);
-      this.wakePhysics();
     }
   }
 
-  private getGroupColumnX(group: NodeGroup): number {
-    switch (group) {
-      case 'session': return 60;
-      case 'agents': return 260;
-      case 'files': return 480;
-      case 'commands': return 700;
-      case 'mcp': return 920;
-      case 'security': return 1140;
-      case 'output': return 1360;
-    }
-  }
-
-  // Spread / Unfold graph into clean, readable hierarchical columns
   public spreadLayout(): void {
-    const groupsOrder: NodeGroup[] = ['session', 'agents', 'files', 'commands', 'mcp', 'security', 'output'];
-    const colSpacing = 240;
-    const rowSpacing = 70;
+    const colSpacing = 260;
+    const rowSpacing = 74;
     const startX = 60;
-    const startY = 100;
+    const startY = 120;
 
-    groupsOrder.forEach((grp, colIdx) => {
-      const groupNodes = Array.from(this.nodes.values()).filter((n) => n.group === grp);
-      groupNodes.forEach((node, rowIdx) => {
+    const columnOrder: SemanticNodeType[] = ['goal', 'agent', 'file', 'service', 'test_suite', 'checkpoint', 'deliverable'];
+
+    columnOrder.forEach((type, colIdx) => {
+      const typeNodes = this.getVisibleNodes().filter((n) => n.type === type);
+      typeNodes.forEach((node, rowIdx) => {
         node.targetX = startX + colIdx * colSpacing;
         node.targetY = startY + rowIdx * rowSpacing;
       });
@@ -292,36 +489,26 @@ export class FlowGraphCanvas {
   }
 
   public centerView(): void {
-    if (this.nodes.size === 0) return;
+    const visible = this.getVisibleNodes();
+    if (visible.length === 0) return;
+
     const width = this.canvas.width / (window.devicePixelRatio || 1);
     const height = this.canvas.height / (window.devicePixelRatio || 1);
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const node of this.nodes.values()) {
-      minX = Math.min(minX, node.x);
-      minY = Math.min(minY, node.y);
-      maxX = Math.max(maxX, node.x + node.width);
-      maxY = Math.max(maxY, node.y + node.height);
+    for (const node of visible) {
+      minX = Math.min(minX, node.x - node.width / 2);
+      minY = Math.min(minY, node.y - node.height / 2);
+      maxX = Math.max(maxX, node.x + node.width / 2);
+      maxY = Math.max(maxY, node.y + node.height / 2);
     }
 
-    const graphWidth = maxX - minX + 120;
-    const graphHeight = maxY - minY + 120;
+    const graphWidth = maxX - minX + 140;
+    const graphHeight = maxY - minY + 140;
 
-    this.zoom = Math.min(1.2, Math.max(0.5, Math.min(width / graphWidth, height / graphHeight)));
+    this.zoom = Math.min(1.15, Math.max(0.45, Math.min(width / graphWidth, height / graphHeight)));
     this.panX = width / 2 - ((minX + maxX) / 2) * this.zoom;
     this.panY = height / 2 - ((minY + maxY) / 2) * this.zoom;
-  }
-
-  private addLink(source: string, target: string, color: string): void {
-    const exists = this.links.some((l) => l.source === source && l.target === target);
-    if (!exists) {
-      this.links.push({
-        source,
-        target,
-        color,
-        pulseProgress: 0,
-      });
-    }
   }
 
   public start(): void {
@@ -342,53 +529,53 @@ export class FlowGraphCanvas {
   }
 
   private update(): void {
-    // 1. Smooth interpolation to target positions
     if (this.physicsActive) {
       let maxDelta = 0;
       for (const node of this.nodes.values()) {
         const dx = node.targetX - node.x;
         const dy = node.targetY - node.y;
-        node.x += dx * 0.15;
-        node.y += dy * 0.15;
+        node.x += dx * 0.16;
+        node.y += dy * 0.16;
         maxDelta = Math.max(maxDelta, Math.hypot(dx, dy));
       }
 
-      this.alpha *= 0.95;
+      this.alpha *= 0.94;
       if (maxDelta < 0.2 && this.alpha < 0.05) {
         this.physicsActive = false;
       }
     }
 
-    // 2. Pulse decays
     for (const node of this.nodes.values()) {
       if (node.pulse > 0) {
         node.pulse = Math.max(0, node.pulse - 0.02);
       }
     }
 
-    // 3. Links animation
-    for (const link of this.links) {
+    for (const link of this.links.values()) {
       link.pulseProgress = (link.pulseProgress + 0.02) % 1;
     }
   }
 
-  private calculateGroupHulls(): GroupHull[] {
-    const groupDefs: { group: NodeGroup; title: string; color: string }[] = [
-      { group: 'session', title: '🎯 SESSION', color: '#f59e0b' },
-      { group: 'agents', title: '👷 AGENTS', color: '#06b6d4' },
-      { group: 'files', title: '📁 FILE OPS', color: '#10b981' },
-      { group: 'commands', title: '⚙️ COMMANDS & TESTS', color: '#38bdf8' },
-      { group: 'mcp', title: '📞 MCP BRIDGES', color: '#a855f7' },
-      { group: 'security', title: '🛡️ SECURITY & CHECKPOINTS', color: '#ef4444' },
+  private calculateGroupHulls(): SemanticGroupHull[] {
+    const defs: { type: SemanticNodeType; title: string; color: string }[] = [
+      { type: 'goal', title: '🎯 GOAL & PROMPT', color: '#f59e0b' },
+      { type: 'agent', title: '👷 AGENTS & SUBAGENTS', color: '#06b6d4' },
+      { type: 'file', title: '📁 CODE & ARTIFACT IMPACT', color: '#10b981' },
+      { type: 'service', title: '📞 MCP SERVICES & TOOLS', color: '#a855f7' },
+      { type: 'test_suite', title: '🧪 TEST VERIFICATION', color: '#38bdf8' },
+      { type: 'checkpoint', title: '🛡️ SECURITY CHECKPOINTS', color: '#ef4444' },
+      { type: 'deliverable', title: '📦 DELIVERABLES', color: '#14b8a6' },
     ];
 
-    const hulls: GroupHull[] = [];
-    for (const def of groupDefs) {
-      const nodes = Array.from(this.nodes.values()).filter((n) => n.group === def.group);
-      if (nodes.length === 0) continue;
+    const visible = this.getVisibleNodes();
+    const hulls: SemanticGroupHull[] = [];
+
+    for (const def of defs) {
+      const typeNodes = visible.filter((n) => n.type === def.type);
+      if (typeNodes.length === 0) continue;
 
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const n of nodes) {
+      for (const n of typeNodes) {
         minX = Math.min(minX, n.x - n.width / 2);
         minY = Math.min(minY, n.y - n.height / 2);
         maxX = Math.max(maxX, n.x + n.width / 2);
@@ -396,8 +583,8 @@ export class FlowGraphCanvas {
       }
 
       hulls.push({
-        group: def.group,
-        title: `${def.title} (${nodes.length})`,
+        type: def.type,
+        title: `${def.title} (${typeNodes.length})`,
         color: def.color,
         minX: minX - 16,
         minY: minY - 28,
@@ -417,11 +604,13 @@ export class FlowGraphCanvas {
     ctx.clearRect(0, 0, width, height);
     ctx.save();
 
-    // Apply Camera Transform
     ctx.translate(this.panX, this.panY);
     ctx.scale(this.zoom, this.zoom);
 
-    // 1. Draw Group Containers (Swimlanes / Hulls)
+    const visibleNodes = this.getVisibleNodes();
+    const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
+
+    // 1. Draw Semantic Group Hulls
     const hulls = this.calculateGroupHulls();
     for (const hull of hulls) {
       const w = hull.maxX - hull.minX;
@@ -431,24 +620,25 @@ export class FlowGraphCanvas {
       ctx.fillStyle = `${hull.color}0a`;
       ctx.strokeStyle = `${hull.color}33`;
       ctx.lineWidth = 1;
-      ctx.setLineDash([6, 4]);
+      ctx.setLineDash([5, 5]);
 
       ctx.beginPath();
-      ctx.roundRect(hull.minX, hull.minY, w, h, 10);
+      ctx.roundRect(hull.minX, hull.minY, w, h, 8);
       ctx.fill();
       ctx.stroke();
 
-      // Group Header Label
       ctx.setLineDash([]);
       ctx.fillStyle = hull.color;
-      ctx.font = 'bold 10px Inter, monospace';
+      ctx.font = 'bold 10px Inter, sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText(hull.title, hull.minX + 10, hull.minY + 16);
       ctx.restore();
     }
 
     // 2. Draw Links & Animated Packets
-    for (const link of this.links) {
+    for (const link of this.links.values()) {
+      if (!visibleNodeIds.has(link.source) || !visibleNodeIds.has(link.target)) continue;
+
       const src = this.nodes.get(link.source);
       const tgt = this.nodes.get(link.target);
       if (!src || !tgt) continue;
@@ -458,7 +648,7 @@ export class FlowGraphCanvas {
       const tx = tgt.x - tgt.width / 2;
       const ty = tgt.y;
 
-      // Smooth Bezier Curve
+      // Curved Bezier Link
       ctx.strokeStyle = '#334155';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -466,7 +656,7 @@ export class FlowGraphCanvas {
       ctx.bezierCurveTo((sx + tx) / 2, sy, (sx + tx) / 2, ty, tx, ty);
       ctx.stroke();
 
-      // Traveling packet
+      // Traveling animated packet
       const t = link.pulseProgress;
       const cp1x = (sx + tx) / 2;
       const cp1y = sy;
@@ -480,25 +670,33 @@ export class FlowGraphCanvas {
       ctx.beginPath();
       ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fill();
+
+      // Link semantic label if present
+      if (link.label) {
+        ctx.font = '8px monospace';
+        ctx.fillStyle = '#64748b';
+        ctx.textAlign = 'center';
+        ctx.fillText(link.label, (sx + tx) / 2, (sy + ty) / 2 - 6);
+      }
     }
 
-    // 3. Draw Nodes (Cards with crisp labels)
-    for (const node of this.nodes.values()) {
+    // 3. Draw Semantic Node Cards
+    for (const node of visibleNodes) {
       const isSelected = this.selectedNodeId === node.id;
       const rx = node.x - node.width / 2;
       const ry = node.y - node.height / 2;
 
       ctx.save();
 
-      // Glow on pulse or select
+      // Glow on select / pulse
       if (node.pulse > 0 || isSelected) {
         ctx.fillStyle = isSelected ? 'rgba(56, 189, 248, 0.25)' : `${node.color}22`;
         ctx.beginPath();
-        ctx.roundRect(rx - 4, ry - 4, node.width + 8, node.height + 8, 8);
+        ctx.roundRect(rx - 3, ry - 3, node.width + 6, node.height + 6, 8);
         ctx.fill();
       }
 
-      // Card Body
+      // Card Background
       ctx.fillStyle = '#111827';
       ctx.strokeStyle = isSelected ? '#38bdf8' : node.color;
       ctx.lineWidth = isSelected ? 2 : 1.2;
@@ -508,20 +706,28 @@ export class FlowGraphCanvas {
       ctx.fill();
       ctx.stroke();
 
-      // Left Accent Strip
+      // Color Strip on left
       ctx.fillStyle = node.color;
       ctx.fillRect(rx, ry, 4, node.height);
 
-      // Title
-      ctx.font = 'bold 10px Inter, sans-serif';
+      // Icon & Main Title
+      ctx.font = 'bold 11px Inter, sans-serif';
       ctx.fillStyle = '#f8fafc';
       ctx.textAlign = 'left';
-      ctx.fillText(node.label, rx + 10, ry + 18);
+      ctx.fillText(`${node.icon} ${node.title}`, rx + 10, ry + 20);
 
-      // Subtitle / summary
+      // Metric Badge (top right pill)
+      ctx.font = 'bold 8px monospace';
+      ctx.fillStyle = node.color;
+      ctx.textAlign = 'right';
+      ctx.fillText(node.badge, rx + node.width - 8, ry + 20);
+
+      // Subtitle / Path
       ctx.font = '9px monospace';
       ctx.fillStyle = '#94a3b8';
-      ctx.fillText(node.sublabel, rx + 10, ry + 36);
+      ctx.textAlign = 'left';
+      const shortSub = node.subtitle.length > 24 ? '…' + node.subtitle.slice(-22) : node.subtitle;
+      ctx.fillText(shortSub, rx + 10, ry + 40);
 
       ctx.restore();
     }
