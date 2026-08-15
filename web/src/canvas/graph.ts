@@ -1,4 +1,5 @@
 import type { VisualizerEvent } from '../types';
+import type { HullResult, WorkerNodeData } from '../workers/layout.worker';
 
 export type SemanticNodeType =
   | 'goal'
@@ -49,23 +50,15 @@ export interface SemanticLink {
   pulseProgress: number;
 }
 
-export interface SemanticGroupHull {
-  type: SemanticNodeType;
-  title: string;
-  color: string;
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
-
 export class FlowGraphCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
+  private worker: Worker | null = null;
 
   public nodes: Map<string, SemanticNode> = new Map();
   public links: Map<string, SemanticLink> = new Map();
+  public hulls: HullResult[] = [];
   public filterMode: GraphFilterMode = 'all';
 
   private selectedNodeId: string | null = null;
@@ -83,13 +76,46 @@ export class FlowGraphCanvas {
   private startMouseY = 0;
 
   private physicsActive = true;
-  private alpha = 1.0;
+  private isWorkerBusy = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
+    this.initWorker();
     this.setupEvents();
     this.resize();
+  }
+
+  private initWorker(): void {
+    try {
+      this.worker = new Worker(new URL('../workers/layout.worker.ts', import.meta.url), { type: 'module' });
+      this.worker.onmessage = (e: MessageEvent) => {
+        this.isWorkerBusy = false;
+        const { type, nodes, hulls, energy } = e.data;
+
+        if (type === 'LAYOUT_RESULT' || type === 'PHYSICS_TICK') {
+          for (const wn of nodes as WorkerNodeData[]) {
+            const local = this.nodes.get(wn.id);
+            if (local && (!this.isDragging || this.dragNode?.id !== local.id)) {
+              local.x = wn.x;
+              local.y = wn.y;
+              local.targetX = wn.targetX;
+              local.targetY = wn.targetY;
+            }
+          }
+
+          if (hulls) {
+            this.hulls = hulls;
+          }
+
+          if (energy !== undefined && energy < 0.2) {
+            this.physicsActive = false;
+          }
+        }
+      };
+    } catch (err) {
+      console.warn('Web Worker initialization fallback to main thread:', err);
+    }
   }
 
   private setupEvents(): void {
@@ -178,7 +204,6 @@ export class FlowGraphCanvas {
   }
 
   public wakePhysics(): void {
-    this.alpha = 1.0;
     this.physicsActive = true;
   }
 
@@ -202,13 +227,8 @@ export class FlowGraphCanvas {
     return all;
   }
 
-  /**
-   * Translates incoming low-level events into rich semantic DAG nodes:
-   * Aggregates files into unique file entities, MCP calls into service nodes,
-   * tests into verification nodes, etc.
-   */
   public handleEvent(evt: VisualizerEvent): void {
-    // 1. Root Goal Node (User Objective / Turn)
+    // 1. Root Goal Node
     const goalNodeId = `goal-${evt.sessionId}`;
     if (!this.nodes.has(goalNodeId)) {
       this.nodes.set(goalNodeId, {
@@ -221,9 +241,9 @@ export class FlowGraphCanvas {
         icon: '🎯',
         metrics: { lastUpdated: evt.timestamp, status: 'ACTIVE' },
         details: { sessionId: evt.sessionId },
-        x: 60,
+        x: 80,
         y: 240,
-        targetX: 60,
+        targetX: 80,
         targetY: 240,
         pulse: 1.0,
         width: 170,
@@ -246,9 +266,9 @@ export class FlowGraphCanvas {
         agentId: evt.agentId,
         metrics: { lastUpdated: evt.timestamp },
         details: { role: evt.agentRole, agentId: evt.agentId },
-        x: 280,
+        x: 350,
         y: 180 + this.getAgentCount() * 80,
-        targetX: 280,
+        targetX: 350,
         targetY: 180 + this.getAgentCount() * 80,
         pulse: 1.0,
         width: 180,
@@ -280,9 +300,9 @@ export class FlowGraphCanvas {
             lastUpdated: evt.timestamp,
           },
           details: { fullPath: cleanPath, lastAgent: evt.agentId, history: [evt.title] },
-          x: 520,
+          x: 620,
           y: 140 + this.getFileCount() * 70,
-          targetX: 520,
+          targetX: 620,
           targetY: 140 + this.getFileCount() * 70,
           pulse: 1.0,
           width: 190,
@@ -294,7 +314,7 @@ export class FlowGraphCanvas {
           fileNode.metrics.editsCount = (fileNode.metrics.editsCount || 0) + 1;
           fileNode.metrics.linesChanged = (fileNode.metrics.linesChanged || 0) + (evt.payload?.lines || 0);
           fileNode.badge = `${fileNode.metrics.editsCount} revisions`;
-          fileNode.color = '#ec4899'; // forged/modified accent
+          fileNode.color = '#ec4899';
         }
         fileNode.metrics.lastUpdated = evt.timestamp;
         fileNode.pulse = 1.0;
@@ -322,9 +342,9 @@ export class FlowGraphCanvas {
           icon: '📞',
           metrics: { callsCount: 1, lastUpdated: evt.timestamp },
           details: { serverName, lastMethod: evt.payload?.method },
-          x: 760,
+          x: 890,
           y: 140 + this.getServiceCount() * 70,
-          targetX: 760,
+          targetX: 890,
           targetY: 140 + this.getServiceCount() * 70,
           pulse: 1.0,
           width: 180,
@@ -358,9 +378,9 @@ export class FlowGraphCanvas {
             icon: '🧪',
             metrics: { status: 'PASS', lastUpdated: evt.timestamp },
             details: { command: evt.title },
-            x: 760,
+            x: 890,
             y: 320,
-            targetX: 760,
+            targetX: 890,
             targetY: 320,
             pulse: 1.0,
             width: 185,
@@ -391,9 +411,9 @@ export class FlowGraphCanvas {
         icon: '🛡️',
         metrics: { status: isApproved ? 'PASS' : 'PENDING', lastUpdated: evt.timestamp },
         details: evt.payload || {},
-        x: 520,
+        x: 620,
         y: 380,
-        targetX: 520,
+        targetX: 620,
         targetY: 380,
         pulse: 1.0,
         width: 190,
@@ -416,9 +436,9 @@ export class FlowGraphCanvas {
         icon: '📦',
         metrics: { status: 'DONE', lastUpdated: evt.timestamp },
         details: {},
-        x: 1000,
+        x: 1160,
         y: 240,
-        targetX: 1000,
+        targetX: 1160,
         targetY: 240,
         pulse: 1.0,
         width: 190,
@@ -468,24 +488,40 @@ export class FlowGraphCanvas {
     }
   }
 
+  // Offloaded to Web Worker!
   public spreadLayout(): void {
-    const colSpacing = 260;
-    const rowSpacing = 74;
-    const startX = 60;
-    const startY = 120;
+    if (this.worker) {
+      const workerNodes = Array.from(this.nodes.values()).map((n) => ({
+        id: n.id,
+        type: n.type,
+        width: n.width,
+        height: n.height,
+        x: n.x,
+        y: n.y,
+        targetX: n.targetX,
+        targetY: n.targetY,
+        vx: 0,
+        vy: 0,
+      }));
 
-    const columnOrder: SemanticNodeType[] = ['goal', 'agent', 'file', 'service', 'test_suite', 'checkpoint', 'deliverable'];
+      const workerLinks = Array.from(this.links.values()).map((l) => ({
+        id: l.id,
+        source: l.source,
+        target: l.target,
+      }));
 
-    columnOrder.forEach((type, colIdx) => {
-      const typeNodes = this.getVisibleNodes().filter((n) => n.type === type);
-      typeNodes.forEach((node, rowIdx) => {
-        node.targetX = startX + colIdx * colSpacing;
-        node.targetY = startY + rowIdx * rowSpacing;
+      this.worker.postMessage({
+        type: 'COMPUTE_SPREAD_LAYOUT',
+        payload: {
+          nodes: workerNodes,
+          links: workerLinks,
+          filterMode: this.filterMode,
+        },
       });
-    });
+    }
 
     this.wakePhysics();
-    this.centerView();
+    setTimeout(() => this.centerView(), 50);
   }
 
   public centerView(): void {
@@ -503,8 +539,8 @@ export class FlowGraphCanvas {
       maxY = Math.max(maxY, node.y + node.height / 2);
     }
 
-    const graphWidth = maxX - minX + 140;
-    const graphHeight = maxY - minY + 140;
+    const graphWidth = maxX - minX + 160;
+    const graphHeight = maxY - minY + 160;
 
     this.zoom = Math.min(1.15, Math.max(0.45, Math.min(width / graphWidth, height / graphHeight)));
     this.panX = width / 2 - ((minX + maxX) / 2) * this.zoom;
@@ -529,20 +565,32 @@ export class FlowGraphCanvas {
   }
 
   private update(): void {
-    if (this.physicsActive) {
-      let maxDelta = 0;
-      for (const node of this.nodes.values()) {
-        const dx = node.targetX - node.x;
-        const dy = node.targetY - node.y;
-        node.x += dx * 0.16;
-        node.y += dy * 0.16;
-        maxDelta = Math.max(maxDelta, Math.hypot(dx, dy));
-      }
+    // Dispatch physics step to worker if active
+    if (this.physicsActive && this.worker && !this.isWorkerBusy) {
+      this.isWorkerBusy = true;
+      const workerNodes = Array.from(this.nodes.values()).map((n) => ({
+        id: n.id,
+        type: n.type,
+        width: n.width,
+        height: n.height,
+        x: n.x,
+        y: n.y,
+        targetX: n.targetX,
+        targetY: n.targetY,
+        vx: 0,
+        vy: 0,
+      }));
 
-      this.alpha *= 0.94;
-      if (maxDelta < 0.2 && this.alpha < 0.05) {
-        this.physicsActive = false;
-      }
+      const workerLinks = Array.from(this.links.values()).map((l) => ({
+        id: l.id,
+        source: l.source,
+        target: l.target,
+      }));
+
+      this.worker.postMessage({
+        type: 'SIMULATE_PHYSICS_STEP',
+        payload: { nodes: workerNodes, links: workerLinks },
+      });
     }
 
     for (const node of this.nodes.values()) {
@@ -554,46 +602,6 @@ export class FlowGraphCanvas {
     for (const link of this.links.values()) {
       link.pulseProgress = (link.pulseProgress + 0.02) % 1;
     }
-  }
-
-  private calculateGroupHulls(): SemanticGroupHull[] {
-    const defs: { type: SemanticNodeType; title: string; color: string }[] = [
-      { type: 'goal', title: '🎯 GOAL & PROMPT', color: '#f59e0b' },
-      { type: 'agent', title: '👷 AGENTS & SUBAGENTS', color: '#06b6d4' },
-      { type: 'file', title: '📁 CODE & ARTIFACT IMPACT', color: '#10b981' },
-      { type: 'service', title: '📞 MCP SERVICES & TOOLS', color: '#a855f7' },
-      { type: 'test_suite', title: '🧪 TEST VERIFICATION', color: '#38bdf8' },
-      { type: 'checkpoint', title: '🛡️ SECURITY CHECKPOINTS', color: '#ef4444' },
-      { type: 'deliverable', title: '📦 DELIVERABLES', color: '#14b8a6' },
-    ];
-
-    const visible = this.getVisibleNodes();
-    const hulls: SemanticGroupHull[] = [];
-
-    for (const def of defs) {
-      const typeNodes = visible.filter((n) => n.type === def.type);
-      if (typeNodes.length === 0) continue;
-
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const n of typeNodes) {
-        minX = Math.min(minX, n.x - n.width / 2);
-        minY = Math.min(minY, n.y - n.height / 2);
-        maxX = Math.max(maxX, n.x + n.width / 2);
-        maxY = Math.max(maxY, n.y + n.height / 2);
-      }
-
-      hulls.push({
-        type: def.type,
-        title: `${def.title} (${typeNodes.length})`,
-        color: def.color,
-        minX: minX - 16,
-        minY: minY - 28,
-        maxX: maxX + 16,
-        maxY: maxY + 16,
-      });
-    }
-
-    return hulls;
   }
 
   private render(): void {
@@ -610,9 +618,8 @@ export class FlowGraphCanvas {
     const visibleNodes = this.getVisibleNodes();
     const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
 
-    // 1. Draw Semantic Group Hulls
-    const hulls = this.calculateGroupHulls();
-    for (const hull of hulls) {
+    // 1. Draw Precomputed Semantic Group Hulls from Web Worker
+    for (const hull of this.hulls) {
       const w = hull.maxX - hull.minX;
       const h = hull.maxY - hull.minY;
 
@@ -648,7 +655,6 @@ export class FlowGraphCanvas {
       const tx = tgt.x - tgt.width / 2;
       const ty = tgt.y;
 
-      // Curved Bezier Link
       ctx.strokeStyle = '#334155';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -656,7 +662,6 @@ export class FlowGraphCanvas {
       ctx.bezierCurveTo((sx + tx) / 2, sy, (sx + tx) / 2, ty, tx, ty);
       ctx.stroke();
 
-      // Traveling animated packet
       const t = link.pulseProgress;
       const cp1x = (sx + tx) / 2;
       const cp1y = sy;
@@ -671,7 +676,6 @@ export class FlowGraphCanvas {
       ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Link semantic label if present
       if (link.label) {
         ctx.font = '8px monospace';
         ctx.fillStyle = '#64748b';
@@ -688,7 +692,6 @@ export class FlowGraphCanvas {
 
       ctx.save();
 
-      // Glow on select / pulse
       if (node.pulse > 0 || isSelected) {
         ctx.fillStyle = isSelected ? 'rgba(56, 189, 248, 0.25)' : `${node.color}22`;
         ctx.beginPath();
@@ -696,7 +699,6 @@ export class FlowGraphCanvas {
         ctx.fill();
       }
 
-      // Card Background
       ctx.fillStyle = '#111827';
       ctx.strokeStyle = isSelected ? '#38bdf8' : node.color;
       ctx.lineWidth = isSelected ? 2 : 1.2;
@@ -706,23 +708,19 @@ export class FlowGraphCanvas {
       ctx.fill();
       ctx.stroke();
 
-      // Color Strip on left
       ctx.fillStyle = node.color;
       ctx.fillRect(rx, ry, 4, node.height);
 
-      // Icon & Main Title
       ctx.font = 'bold 11px Inter, sans-serif';
       ctx.fillStyle = '#f8fafc';
       ctx.textAlign = 'left';
       ctx.fillText(`${node.icon} ${node.title}`, rx + 10, ry + 20);
 
-      // Metric Badge (top right pill)
       ctx.font = 'bold 8px monospace';
       ctx.fillStyle = node.color;
       ctx.textAlign = 'right';
       ctx.fillText(node.badge, rx + node.width - 8, ry + 20);
 
-      // Subtitle / Path
       ctx.font = '9px monospace';
       ctx.fillStyle = '#94a3b8';
       ctx.textAlign = 'left';
