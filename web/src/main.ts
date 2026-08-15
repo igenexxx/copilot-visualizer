@@ -5,12 +5,14 @@ import { VisualizerClient } from './services/ws';
 import { WorkshopCanvas } from './canvas/workshop';
 import { FlowGraphCanvas } from './canvas/graph';
 import { RPGEngine } from './rpg/engine';
+import { TokenomicsTracker } from './tokenomics/tracker';
 
 class App {
   private client: VisualizerClient;
   private workshopCanvas!: WorkshopCanvas;
   private graphCanvas!: FlowGraphCanvas;
   private rpg: RPGEngine;
+  private tokenomics: TokenomicsTracker;
 
   private allEvents: VisualizerEvent[] = [];
   private currentPlaybackIndex = -1;
@@ -33,12 +35,14 @@ class App {
   constructor() {
     this.client = new VisualizerClient();
     this.rpg = new RPGEngine();
+    this.tokenomics = new TokenomicsTracker();
     this.initDOM();
     this.initCanvases();
     this.setupSubscriptions();
     this.client.connect();
     this.loadInitialHistory();
     this.setupRPG();
+    this.setupTokenomics();
   }
 
   private initDOM(): void {
@@ -145,6 +149,49 @@ class App {
                   <div class="rpg-progress-track">
                     <div id="rpg-xp-fill" class="rpg-fill-xp" style="width: 0%;"></div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tokenomics & Cost HUD -->
+            <div class="tokenomics-container">
+              <!-- Analog Context Window Silo Gauge -->
+              <div class="silo-card" title="Analog Context Window Depth Silo">
+                <div class="silo-tank-wrapper">
+                  <div id="silo-fill" class="silo-plasma-fill" style="height: 5%;"></div>
+                  <div class="silo-ticks">
+                    <div class="silo-tick-line"></div>
+                    <div class="silo-tick-line"></div>
+                    <div class="silo-tick-line"></div>
+                    <div class="silo-tick-line"></div>
+                  </div>
+                </div>
+                <div class="silo-info">
+                  <span class="silo-title">CONTEXT SILO</span>
+                  <span id="silo-depth" class="silo-depth-val">0k / 200k</span>
+                  <span id="silo-percent" class="silo-pct">0.0% FULL</span>
+                </div>
+              </div>
+
+              <!-- Mechanical USD Cost Odometer -->
+              <div class="odometer-card" title="Real-time LLM API Cost Odometer">
+                <div class="odometer-title-row">
+                  <span>API COST ODOMETER</span>
+                  <select id="pricing-model-select" class="speed-select" style="padding: 1px 4px; font-size: 8px;">
+                    <option value="claude35">Claude 3.5</option>
+                    <option value="gpt4o">GPT-4o</option>
+                    <option value="gemini15">Gemini 1.5</option>
+                  </select>
+                </div>
+                <div class="odometer-counter">
+                  <span class="odometer-currency">$</span>
+                  <span id="odometer-val" class="odometer-val">0.0000</span>
+                  <span style="font-size: 9px; color: var(--text-muted); font-family: monospace;">USD</span>
+                </div>
+                <div class="odometer-breakdown">
+                  <span id="odometer-in">In: 0k</span>
+                  <span id="odometer-out">Out: 0k</span>
+                  <span id="odometer-cache">Cache: 0k</span>
                 </div>
               </div>
             </div>
@@ -286,6 +333,21 @@ class App {
               <div id="diff-right-content"></div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Level Up RPG Modal -->
+      <div id="levelup-modal" class="levelup-overlay" style="display: none;">
+        <div class="levelup-card">
+          <div class="levelup-badge">🏆</div>
+          <div class="levelup-heading">LEVEL UP!</div>
+          <div id="levelup-modal-title" class="levelup-title">Senior Logic Artisan</div>
+          <div id="levelup-modal-perks" class="levelup-perks">
+            ✨ Max Mana +75,000 MP<br />
+            ❤️ Max HP +25<br />
+            🛡️ Cooldowns -10%
+          </div>
+          <button id="btn-levelup-ack" class="levelup-btn">CLAIM REWARDS ⚔️</button>
         </div>
       </div>
     `;
@@ -720,7 +782,7 @@ class App {
       this.showCheckpointModal(event);
     }
 
-    // Update stats & RPG Engine
+    // Update stats & RPG & Tokenomics
     this.stats.totalEvents++;
     if (event.type === 'file.write') this.stats.filesWritten++;
     if (event.type === 'mcp.call') this.stats.mcpCalls++;
@@ -728,6 +790,7 @@ class App {
     this.stats.activeAgents = Math.max(1, this.workshopCanvas.floors.reduce((acc, fl) => acc + fl.workers.size, 0));
 
     this.rpg.handleEvent(event);
+    this.tokenomics.handleEvent(event);
     this.updateHUD();
 
     // If currently on live stream, process event
@@ -826,18 +889,89 @@ class App {
 
     this.rpg.onLevelUp = (lvl, title) => {
       confetti({
-        particleCount: 150,
+        particleCount: 160,
         spread: 100,
         origin: { y: 0.4 },
         colors: ['#fbbf24', '#f59e0b', '#38bdf8', '#a855f7'],
       });
-      alert(`🎉 LEVEL UP! You reached Level ${lvl}: ${title}! Max Mana and Stats increased!`);
+      this.showLevelUpModal(lvl, title);
       this.updateRPGStatsUI();
     };
 
     this.rpg.onStatsChanged = () => {
       this.updateRPGStatsUI();
       this.renderRPGHotbar();
+    };
+  }
+
+  private showLevelUpModal(lvl: number, title: string): void {
+    const modal = document.getElementById('levelup-modal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('levelup-modal-title');
+    const perksEl = document.getElementById('levelup-modal-perks');
+    const ackBtn = document.getElementById('btn-levelup-ack');
+
+    if (titleEl) titleEl.textContent = `Level ${lvl}: ${title}`;
+    if (perksEl) {
+      perksEl.innerHTML = `
+        ✨ Max Mana: +75,000 MP<br />
+        ❤️ Max Stability: +25 HP<br />
+        ⚡ Next Level Requirement: ${this.rpg.stats.nextLevelXp} XP
+      `;
+    }
+
+    modal.style.display = 'flex';
+
+    if (ackBtn) {
+      ackBtn.onclick = () => {
+        modal.style.display = 'none';
+      };
+    }
+  }
+
+  private setupTokenomics(): void {
+    const select = document.getElementById('pricing-model-select') as HTMLSelectElement;
+    if (select) {
+      select.addEventListener('change', () => {
+        this.tokenomics.setModel(select.value);
+      });
+    }
+
+    this.tokenomics.onUpdate = (state) => {
+      // 1. Update Silo Tank Fill & Depth
+      const fillEl = document.getElementById('silo-fill');
+      const depthEl = document.getElementById('silo-depth');
+      const pctEl = document.getElementById('silo-percent');
+
+      if (fillEl) {
+        fillEl.style.height = `${Math.max(4, Math.min(100, state.contextPercent))}%`;
+        fillEl.classList.toggle('warn', state.contextPercent >= 60 && state.contextPercent < 80);
+        fillEl.classList.toggle('danger', state.contextPercent >= 80);
+      }
+
+      if (depthEl) {
+        const currK = (state.contextTokens / 1000).toFixed(1);
+        const maxK = (state.maxContextTokens / 1000).toFixed(0);
+        depthEl.textContent = `${currK}k / ${maxK}k`;
+      }
+
+      if (pctEl) {
+        pctEl.textContent = `${state.contextPercent.toFixed(1)}% FULL`;
+      }
+
+      // 2. Update Mechanical Odometer
+      const odoVal = document.getElementById('odometer-val');
+      const odoIn = document.getElementById('odometer-in');
+      const odoOut = document.getElementById('odometer-out');
+      const odoCache = document.getElementById('odometer-cache');
+
+      if (odoVal) {
+        odoVal.textContent = state.totalCostUSD.toFixed(4);
+      }
+      if (odoIn) odoIn.textContent = `In: ${(state.inputTokens / 1000).toFixed(1)}k`;
+      if (odoOut) odoOut.textContent = `Out: ${(state.outputTokens / 1000).toFixed(1)}k`;
+      if (odoCache) odoCache.textContent = `Cache: ${(state.cachedTokens / 1000).toFixed(1)}k`;
     };
   }
 

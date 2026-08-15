@@ -192,13 +192,13 @@ export class RPGEngine {
   private levelUp(): void {
     this.stats.xp -= this.stats.nextLevelXp;
     this.stats.level++;
-    this.stats.nextLevelXp = Math.round(this.stats.nextLevelXp * 1.5);
-    this.stats.maxHp += 20;
+    // Exponential difficulty curve for higher levels
+    this.stats.nextLevelXp = Math.round(350 * Math.pow(this.stats.level, 1.85));
+    this.stats.maxHp += 25;
     this.stats.hp = this.stats.maxHp;
-    this.stats.maxMp += 50000;
+    this.stats.maxMp += 75000;
     this.stats.mp = this.stats.maxMp;
 
-    // Titles
     const titles = [
       'Junior Code Crafter',
       'Senior Logic Artisan',
