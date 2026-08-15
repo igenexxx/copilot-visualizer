@@ -1088,17 +1088,46 @@ export class WorkshopCanvas {
 
     this.ctx.save();
 
-    // 1. Thermal Heatmap Aura
+    // 1. Thermal Heatmap Aura (Scaled by station footprint with radial glow)
     if (st.heatLevel > 15) {
       const heatFactor = st.heatLevel / 100;
-      const auraRadius = (22 + heatFactor * 16) * this.zoom;
-      const auraColor = st.overheating
-        ? `rgba(239, 68, 68, ${0.25 + heatFactor * 0.35})`
-        : `rgba(245, 158, 11, ${0.15 + heatFactor * 0.25})`;
+      let baseRadius = 24;
+      let centerOffsetY = 0;
+      if (st.type === 'repo_shelf') {
+        baseRadius = 52;
+        centerOffsetY = -6;
+      } else if (st.type === 'server_rack') {
+        baseRadius = 38;
+        centerOffsetY = -10;
+      } else if (st.type === 'subagent_office') {
+        baseRadius = 42;
+        centerOffsetY = -8;
+      }
+
+      const auraRadius = (baseRadius + heatFactor * 28) * this.zoom;
+      const cy = pos.y + centerOffsetY * this.zoom;
+
+      const grad = this.ctx.createRadialGradient(
+        pos.x,
+        cy,
+        4 * this.zoom,
+        pos.x,
+        cy,
+        auraRadius
+      );
+      if (st.overheating) {
+        grad.addColorStop(0, `rgba(239, 68, 68, ${0.5 + heatFactor * 0.35})`);
+        grad.addColorStop(0.6, `rgba(239, 68, 68, ${0.22 + heatFactor * 0.2})`);
+        grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+      } else {
+        grad.addColorStop(0, `rgba(245, 158, 11, ${0.4 + heatFactor * 0.25})`);
+        grad.addColorStop(0.6, `rgba(245, 158, 11, ${0.16 + heatFactor * 0.15})`);
+        grad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+      }
 
       this.ctx.beginPath();
-      this.ctx.ellipse(pos.x, pos.y, auraRadius, auraRadius * 0.58, 0, 0, Math.PI * 2);
-      this.ctx.fillStyle = auraColor;
+      this.ctx.ellipse(pos.x, cy, auraRadius, auraRadius * 0.65, 0, 0, Math.PI * 2);
+      this.ctx.fillStyle = grad;
       this.ctx.fill();
     }
 
@@ -1355,9 +1384,13 @@ export class WorkshopCanvas {
         const pulseCmd = pulse && (lastTitle.includes('cmd') || lastTitle.includes('main'));
         const pulseWeb = pulse && (lastTitle.includes('web') || lastTitle.includes('src') || lastTitle.includes('css') || lastTitle.includes('ts'));
 
+        const isHot = st.heatLevel > 20;
+        const isCritical = st.overheating;
+        const thermalBorder = isCritical ? '#ef4444' : isHot ? '#f59e0b' : null;
+
         // Base Industrial Concrete Foundation Platform
-        ctx.fillStyle = '#0f172a';
-        ctx.strokeStyle = '#334155';
+        ctx.fillStyle = isCritical ? '#2d1517' : '#0f172a';
+        ctx.strokeStyle = isCritical ? '#ef4444' : '#334155';
         ctx.lineWidth = 1 * z;
         ctx.beginPath();
         ctx.ellipse(x, y + 8 * z, 38 * z, 18 * z, 0, 0, Math.PI * 2);
@@ -1370,10 +1403,10 @@ export class WorkshopCanvas {
           y - 4 * z,
           24,
           28,
-          '#3b82f6',
-          '#1d4ed8',
-          '#1e40af',
-          '#60a5fa',
+          isCritical ? '#991b1b' : '#3b82f6',
+          isCritical ? '#7f1d1d' : '#1d4ed8',
+          isCritical ? '#450a0a' : '#1e40af',
+          thermalBorder || '#60a5fa',
           '📁 /pkg',
           '#38bdf8',
           pulsePkg
@@ -1385,10 +1418,10 @@ export class WorkshopCanvas {
           y - 12 * z,
           22,
           20,
-          '#10b981',
-          '#059669',
-          '#047857',
-          '#34d399',
+          isCritical ? '#b91c1c' : '#10b981',
+          isCritical ? '#991b1b' : '#059669',
+          isCritical ? '#7f1d1d' : '#047857',
+          thermalBorder || '#34d399',
           '📁 /cmd',
           '#34d399',
           pulseCmd
@@ -1400,14 +1433,24 @@ export class WorkshopCanvas {
           y + 8 * z,
           24,
           24,
-          '#ec4899',
-          '#db2777',
-          '#be185d',
-          '#f472b6',
+          isCritical ? '#dc2626' : '#ec4899',
+          isCritical ? '#b91c1c' : '#db2777',
+          isCritical ? '#991b1b' : '#be185d',
+          thermalBorder || '#f472b6',
           '📁 /web',
           '#f472b6',
           pulseWeb
         );
+
+        // Overheat status beacon above cubes
+        if (isHot) {
+          ctx.save();
+          ctx.font = `bold ${Math.max(7, 8.5 * z)}px monospace`;
+          ctx.fillStyle = isCritical ? '#ef4444' : '#f59e0b';
+          ctx.textAlign = 'center';
+          ctx.fillText(isCritical ? `🔥 ${st.temperatureC}°C [OVERHEAT]` : `🌡️ ${st.temperatureC}°C`, x, y - 46 * z);
+          ctx.restore();
+        }
 
         break;
       }
