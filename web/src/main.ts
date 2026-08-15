@@ -621,6 +621,17 @@ class App {
       }
     });
     this.missionControl = new MissionControlPanel();
+    this.missionControl.onToggle = (isExpanded) => {
+      if (isExpanded) {
+        this.recalculateMissionControlAnalytics();
+        this.scheduleUIRefresh();
+      } else {
+        this.pendingContextStatus = null;
+        this.pendingGoalStatus = null;
+        this.pendingBlastStatus = null;
+        this.pendingWaterfallStatus = null;
+      }
+    };
   }
 
   private bindControls(): void {
@@ -1126,13 +1137,17 @@ class App {
     this.rpg.handleEvent(event, effectiveIsHistory);
     this.tokenomics.handleEvent(event);
 
-    // Mission Control Analytics Dispatch (Calculate state)
+    // Cognitive Classification Dispatch (HUD alerts)
     this.pendingLoopStatus = this.loopDetector.processEvent(event);
     this.pendingCogStatus = this.cognitiveClassifier.processEvent(event);
-    this.pendingContextStatus = this.contextSaturation.processEvent(event);
-    this.pendingGoalStatus = this.goalTracker.processEvent(event);
-    this.pendingBlastStatus = this.blastRadius.processEvent(event);
-    this.pendingWaterfallStatus = this.waterfallTimeline.processEvent(event);
+
+    // Mission Control Analytics Dispatch (Calculate ONLY when expanded to save CPU/memory)
+    if (this.missionControl?.isExpanded) {
+      this.pendingContextStatus = this.contextSaturation.processEvent(event);
+      this.pendingGoalStatus = this.goalTracker.processEvent(event);
+      this.pendingBlastStatus = this.blastRadius.processEvent(event);
+      this.pendingWaterfallStatus = this.waterfallTimeline.processEvent(event);
+    }
 
     // Batch UI DOM updates onto single RAF cycle to prevent layout thrashing
     this.scheduleUIRefresh();
@@ -1206,6 +1221,7 @@ class App {
       }
 
       if (
+        this.missionControl?.isExpanded &&
         this.pendingContextStatus &&
         this.pendingGoalStatus &&
         this.pendingBlastStatus &&
@@ -1219,6 +1235,24 @@ class App {
         );
       }
     });
+  }
+
+  private recalculateMissionControlAnalytics(): void {
+    this.contextSaturation.reset();
+    this.goalTracker.reset();
+    this.blastRadius.reset();
+    this.waterfallTimeline.reset();
+
+    const eventsToProcess = this.currentPlaybackIndex >= 0
+      ? this.allEvents.slice(0, this.currentPlaybackIndex + 1)
+      : this.allEvents;
+
+    for (const evt of eventsToProcess) {
+      this.pendingContextStatus = this.contextSaturation.processEvent(evt);
+      this.pendingGoalStatus = this.goalTracker.processEvent(evt);
+      this.pendingBlastStatus = this.blastRadius.processEvent(evt);
+      this.pendingWaterfallStatus = this.waterfallTimeline.processEvent(evt);
+    }
   }
 
   private updateHUD(): void {

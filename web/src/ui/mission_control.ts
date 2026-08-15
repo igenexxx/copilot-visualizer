@@ -5,7 +5,8 @@ import type { WaterfallTelemetry } from '../analytics/waterfall_timeline';
 
 export class MissionControlPanel {
   private container: HTMLElement;
-  private isExpanded: boolean = false;
+  public isExpanded: boolean = false;
+  public onToggle?: (isExpanded: boolean) => void;
 
   constructor(containerId: string = 'mission-control-drawer') {
     let el = document.getElementById(containerId);
@@ -112,6 +113,9 @@ export class MissionControlPanel {
         body.style.display = this.isExpanded ? 'block' : 'none';
         toggleBtn.textContent = this.isExpanded ? '▼ Collapse' : '▲ Expand Analytics';
       }
+      if (this.onToggle) {
+        this.onToggle(this.isExpanded);
+      }
     };
 
     toggleBtn?.addEventListener('click', (e) => {
@@ -122,11 +126,12 @@ export class MissionControlPanel {
   }
 
   public update(
-    context: ContextSaturationTelemetry,
-    goal: GoalStackTelemetry,
-    blast: BlastRadiusTelemetry,
-    waterfall: WaterfallTelemetry
+    context?: ContextSaturationTelemetry | null,
+    goal?: GoalStackTelemetry | null,
+    blast?: BlastRadiusTelemetry | null,
+    waterfall?: WaterfallTelemetry | null
   ): void {
+    if (!this.isExpanded || !context || !goal || !blast || !waterfall) return;
     // 1. Quick Bar
     const qContext = document.getElementById('mc-quick-context');
     const qBlast = document.getElementById('mc-quick-blast');
