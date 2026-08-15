@@ -21,6 +21,7 @@ class App {
   private isPlayingTape = false;
   private tapePlayInterval: number | null = null;
 
+  private isInitialLoading = false;
   private isSimRunning = true;
   private emergencyStopActive = false;
   private activeSessionId = 'global';
@@ -830,23 +831,30 @@ class App {
   }
 
   private async loadInitialHistory(): Promise<void> {
-    this.tokenomics.resetSession('gemini-3.7-flash');
-    this.repoFolders = await this.client.fetchRepoTree();
+    this.isInitialLoading = true;
+    try {
+      this.tokenomics.resetSession('gemini-3.7-flash');
+      this.repoFolders = await this.client.fetchRepoTree();
 
-    const sessions = await this.client.fetchSessions();
-    if (sessions && sessions.length > 0) {
-      const active = sessions[0];
-      this.activeSessionId = active.id;
-      this.tokenomics.setSource(active.source);
-      const sessEl = document.getElementById('session-text');
-      if (sessEl) {
-        sessEl.textContent = `${active.source.toUpperCase()}: ${active.id.slice(0, 10)}`;
+      const sessions = await this.client.fetchSessions();
+      if (sessions && sessions.length > 0) {
+        const active = sessions[0];
+        this.activeSessionId = active.id;
+        this.tokenomics.setSource(active.source);
+        const sessEl = document.getElementById('session-text');
+        if (sessEl) {
+          sessEl.textContent = `${active.source.toUpperCase()}: ${active.id.slice(0, 10)}`;
+        }
+        await this.restoreSessionState(active.id);
       }
-      await this.restoreSessionState(active.id);
-    }
 
-    const history = await this.client.fetchHistory();
-    history.forEach((evt) => this.handleIncomingEvent(evt));
+      const history = await this.client.fetchHistory();
+      history.forEach((evt) => this.handleIncomingEvent(evt, true));
+    } finally {
+      this.isInitialLoading = false;
+      this.updateHUD();
+      this.updateRPGStatsUI();
+    }
   }
 
   private exportWorkstationsState(): Record<string, any> {
@@ -915,7 +923,7 @@ class App {
     this.updateHUD();
   }
 
-  private handleIncomingEvent(event: VisualizerEvent): void {
+  private handleIncomingEvent(event: VisualizerEvent, isHistory: boolean = false): void {
     this.allEvents.push(event);
 
     // Update time slider bounds
@@ -946,8 +954,8 @@ class App {
       document.getElementById('estop-label')!.textContent = this.emergencyStopActive ? 'BRAKE ACTIVE (LIFT)' : 'E-STOP BRAKE';
     }
 
-    // Handle Checkpoint Approval Prompt Modal
-    if (event.type === 'checkpoint.request') {
+    // Handle Checkpoint Approval Prompt Modal (live only)
+    if (event.type === 'checkpoint.request' && !isHistory) {
       this.showCheckpointModal(event);
     }
 
@@ -961,24 +969,28 @@ class App {
     this.rpg.handleEvent(event);
     this.tokenomics.handleEvent(event);
     this.updateHUD();
-    this.scheduleAutoSaveState();
+    if (!isHistory) {
+      this.scheduleAutoSaveState();
+    }
 
     // If currently on live stream, process event and play procedural audio
     if (this.currentPlaybackIndex < 0) {
       this.workshopCanvas.handleEvent(event);
       this.graphCanvas.handleEvent(event);
 
-      // Web Audio Soundscape Dispatch
-      if (event.type === 'file.write') this.soundscape.playLaserCut();
-      else if (event.type === 'agent.think') this.soundscape.playThinkClick();
-      else if (event.type === 'mcp.call') this.soundscape.playPhoneRing();
-      else if (event.type === 'intervention.prompt') this.soundscape.playIntercom();
-      else if (event.type === 'command.run') this.soundscape.playTestRun(true);
-      else if (event.type === 'emergency.stop') this.soundscape.playEmergencyStop();
+      // Web Audio Soundscape Dispatch (LIVE ONLY)
+      if (!isHistory) {
+        if (event.type === 'file.write') this.soundscape.playLaserCut();
+        else if (event.type === 'agent.think') this.soundscape.playThinkClick();
+        else if (event.type === 'mcp.call') this.soundscape.playPhoneRing();
+        else if (event.type === 'intervention.prompt') this.soundscape.playIntercom();
+        else if (event.type === 'command.run') this.soundscape.playTestRun(true);
+        else if (event.type === 'emergency.stop') this.soundscape.playEmergencyStop();
+      }
     }
 
-    // Celebrate session completion with confetti
-    if (event.type === 'session.end') {
+    // Celebrate session completion with confetti (LIVE ONLY)
+    if (event.type === 'session.end' && !isHistory) {
       confetti({
         particleCount: 80,
         spread: 70,
@@ -1070,6 +1082,8 @@ class App {
     this.updateRPGStatsUI();
 
     this.rpg.onLevelUp = (lvl, title) => {
+      this.updateRPGStatsUI();
+      if (this.isInitialLoading) return;
       this.soundscape.playLevelUp();
       confetti({
         particleCount: 160,
@@ -1078,7 +1092,6 @@ class App {
         colors: ['#fbbf24', '#f59e0b', '#38bdf8', '#a855f7'],
       });
       this.showLevelUpModal(lvl, title);
-      this.updateRPGStatsUI();
     };
 
     this.rpg.onStatsChanged = () => {
