@@ -124,13 +124,13 @@ export class WorkshopCanvas {
     const list: Workstation[] = [
       createStation('foreman_desk', level === 0 ? 'Master Command Desk' : `Subagent Desk ${level}F`, 8, 8, '#f59e0b', 'Orchestration, planning & blueprint architecture'),
       createStation('server_rack', 'MCP Server Vault', 3, 3, '#38bdf8', '19" Enterprise server racks & MCP fiber bridges'),
-      createStation('phone_booth', 'MCP Dispatch', 2, 5, '#a855f7', 'External MCP Server bridges & remote RPC phone lines'),
+      createStation('phone_booth', 'MCP Dispatch', 2, 4, '#a855f7', 'External MCP Server bridges & remote RPC phone lines'),
+      createStation('conveyor', 'Conveyor & Elevator', 2, 8, '#14b8a6', 'Inter-floor transport & shipping dock'),
       createStation('subagent_office', 'Subagent Glass Suite', 3, 13, '#a855f7', 'Subagent isolation cubicles & blueprint drafting'),
       createStation('repo_shelf', 'Repo Shelves (/pkg /cmd /web)', 13, 3, '#3b82f6', 'Project repository directory compartment shelves'),
       createStation('search_radar', 'Search Radar', 8, 3, '#06b6d4', 'Codebase symbol index & pattern scanning'),
       createStation('cnc_lathe', 'CNC Machining Lathe', 13, 8, '#ec4899', 'Code forging, patch editing & file modification'),
       createStation('test_furnace', 'Test Range & Furnace', 13, 13, '#10b981', 'Command execution, test suites & build verification'),
-      createStation('conveyor', 'Conveyor & Elevator', 15, 8, '#14b8a6', 'Inter-floor transport & shipping dock'),
       createStation('security_gate', 'Security Gate', 8, 15, '#ef4444', 'Human-in-the-Loop approval gate & checkpoint barrier'),
     ];
 
@@ -903,6 +903,7 @@ export class WorkshopCanvas {
 
     const connections = [
       { gx: 3, gy: 3, color: '#38bdf8', active: (fl.workstations.get('server_rack')?.pulseTime || 0) > 0.05 },
+      { gx: 2, gy: 8, color: '#14b8a6', active: (fl.workstations.get('conveyor')?.pulseTime || 0) > 0.05 },
       { gx: 3, gy: 13, color: '#a855f7', active: (fl.workstations.get('subagent_office')?.pulseTime || 0) > 0.05 },
       { gx: 13, gy: 3, color: '#3b82f6', active: (fl.workstations.get('repo_shelf')?.pulseTime || 0) > 0.05 },
       { gx: 13, gy: 8, color: '#ec4899', active: (fl.workstations.get('cnc_lathe')?.pulseTime || 0) > 0.05 },
