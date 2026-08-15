@@ -9,11 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/zhenya/copilot-visualizer/pkg/events"
+	"github.com/zhenya/copilot-visualizer/pkg/providers"
 )
 
 // Broadcaster sends parsed live events.
@@ -21,9 +21,10 @@ type Broadcaster interface {
 	BroadcastEvent(evt *events.Event) error
 }
 
-// Engine scans and automatically attaches to active AI coding agent sessions.
+// Engine scans and automatically attaches to active AI coding agent sessions using modular providers.
 type Engine struct {
 	broadcaster Broadcaster
+	registry    *providers.Registry
 	parser      TranscriptParser
 	watchPaths  []string
 	pollDelay   time.Duration
@@ -35,39 +36,50 @@ type Engine struct {
 	cancel         context.CancelFunc
 }
 
-// NewEngine initializes the session auto-discovery engine with default system locations.
+// NewEngine initializes the session auto-discovery engine with default system locations from all registered providers.
 func NewEngine(broadcaster Broadcaster, customPaths []string) *Engine {
+	reg := providers.GlobalRegistry()
 	home, _ := os.UserHomeDir()
 
-	defaultPatterns := []string{
-		// Antigravity sessions
-		filepath.Join(home, ".gemini", "antigravity-cli", "brain", "*", ".system_generated", "logs", "transcript.jsonl"),
-		filepath.Join(home, ".gemini", "antigravity-cli", "brain", "*", "logs", "transcript.jsonl"),
-		// Claude Code sessions
-		filepath.Join(home, ".claude", "projects", "*", "logs", "*.jsonl"),
-		filepath.Join(home, ".claude", "sessions", "*.jsonl"),
-		// Copilot CLI sessions
-		filepath.Join(home, ".copilot", "session-state", "*.jsonl"),
-		filepath.Join(home, ".config", "github-copilot", "logs", "*.jsonl"),
-	}
+	allPatterns := reg.CollectAllPatterns(home)
+	allPaths := append(allPatterns, customPaths...)
 
-	allPaths := append(defaultPatterns, customPaths...)
-	return NewEngineWithWatchPaths(broadcaster, allPaths)
+	return &Engine{
+		broadcaster: broadcaster,
+		registry:    reg,
+		parser:      NewAntigravityParser(),
+		watchPaths:  allPaths,
+		pollDelay:   100 * time.Millisecond,
+	}
 }
 
-// NewEngineWithWatchPaths creates an engine strictly watching the specified patterns.
+// NewEngineWithWatchPaths creates an engine watching the specified paths.
 func NewEngineWithWatchPaths(broadcaster Broadcaster, paths []string) *Engine {
 	return &Engine{
 		broadcaster: broadcaster,
-		parser:      &AntigravityParser{},
+		registry:    providers.GlobalRegistry(),
+		parser:      NewAntigravityParser(),
 		watchPaths:  paths,
 		pollDelay:   100 * time.Millisecond,
 	}
 }
 
-// ScanSessions inspects watch paths and returns sorted discovered sessions.
+// SetRegistry configures a custom provider registry.
+func (e *Engine) SetRegistry(reg *providers.Registry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.registry = reg
+}
+
+// ScanSessions inspects watch paths and returns sorted discovered sessions mapped to their respective providers.
 func (e *Engine) ScanSessions() []DiscoveredSession {
 	var results []DiscoveredSession
+	reg := e.registry
+	if reg == nil {
+		reg = providers.GlobalRegistry()
+	}
+
+	seenPaths := make(map[string]bool)
 
 	for _, pattern := range e.watchPaths {
 		matches, err := filepath.Glob(pattern)
@@ -76,33 +88,34 @@ func (e *Engine) ScanSessions() []DiscoveredSession {
 		}
 
 		for _, match := range matches {
-			info, err := os.Stat(match)
-			if err != nil || info.IsDir() {
+			cleanMatch := filepath.Clean(match)
+			if seenPaths[cleanMatch] {
 				continue
 			}
 
-			// Identify source
-			source := SourceGeneric
-			if strings.Contains(match, "antigravity-cli") {
-				source = SourceAntigravity
-			} else if strings.Contains(match, ".claude") {
-				source = SourceClaudeCode
-			} else if strings.Contains(match, "copilot") {
-				source = SourceCopilotCLI
+			info, err := os.Stat(cleanMatch)
+			if err != nil || info.IsDir() {
+				continue
 			}
+			seenPaths[cleanMatch] = true
 
-			// Extract session ID from directory name
-			sessionID := filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(match))))
-			if sessionID == "" || sessionID == "." {
-				sessionID = filepath.Base(match)
+			// Find appropriate provider for this path
+			p := reg.FindProviderForPath(cleanMatch)
+			var source SessionSource = SourceGeneric
+			sessionID := filepath.Base(cleanMatch)
+
+			if p != nil {
+				source = SessionSource(p.Source())
+				sessionID = p.ExtractSessionID(cleanMatch)
 			}
 
 			results = append(results, DiscoveredSession{
 				ID:           sessionID,
 				Source:       source,
-				Path:         match,
+				Path:         cleanMatch,
 				LastModified: info.ModTime(),
 				Active:       time.Since(info.ModTime()) < 10*time.Minute,
+				Provider:     p,
 			})
 		}
 	}
@@ -176,7 +189,7 @@ func (e *Engine) pollActiveSession() {
 			newest.ID,
 			events.TypeSessionStart,
 			"agent-foreman",
-			fmt.Sprintf("Auto-Attached: %s (%s)", newest.Source, newest.ID[:min(8, len(newest.ID))]),
+			fmt.Sprintf("Auto-Attached: %s (%s)", newest.Source, newest.ID[:minInt(8, len(newest.ID))]),
 		).
 			WithRole(events.RoleForeman).
 			WithStation(events.StationForemanDesk).
@@ -192,6 +205,7 @@ func (e *Engine) pollActiveSession() {
 	sessionPath := e.activeSession.Path
 	sessionID := e.activeSession.ID
 	lastOffset := e.lastFileOffset
+	provider := e.activeSession.Provider
 	e.mu.Unlock()
 
 	// Read newly appended data
@@ -212,7 +226,13 @@ func (e *Engine) pollActiveSession() {
 			continue
 		}
 
-		parsedEvents := e.parser.Parse(line, sessionID)
+		var parsedEvents []*events.Event
+		if provider != nil {
+			parsedEvents = provider.ParseLine(line, sessionID)
+		} else if e.parser != nil {
+			parsedEvents = e.parser.Parse(line, sessionID)
+		}
+
 		for _, evt := range parsedEvents {
 			if e.broadcaster != nil {
 				_ = e.broadcaster.BroadcastEvent(evt)
@@ -228,7 +248,7 @@ func (e *Engine) pollActiveSession() {
 	}
 }
 
-func min(a, b int) int {
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}

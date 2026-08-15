@@ -1,13 +1,11 @@
 package autodiscover
 
 import (
-	"encoding/json"
-	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/zhenya/copilot-visualizer/pkg/events"
+	"github.com/zhenya/copilot-visualizer/pkg/providers"
+	"github.com/zhenya/copilot-visualizer/pkg/providers/antigravity"
 )
 
 // SessionSource identifies which tool produced the session.
@@ -27,6 +25,7 @@ type DiscoveredSession struct {
 	Path         string        `json:"path"`
 	LastModified time.Time     `json:"lastModified"`
 	Active       bool          `json:"active"`
+	Provider     providers.Provider `json:"-"`
 }
 
 // TranscriptParser parses a single line from a specific session log format.
@@ -34,213 +33,21 @@ type TranscriptParser interface {
 	Parse(line string, sessionID string) []*events.Event
 }
 
-// AntigravityParser converts Antigravity transcript.jsonl entries to visualizer events.
+// AntigravityParser wraps the modular antigravity.Provider for backward compatibility.
 type AntigravityParser struct {
-	activeModel string
+	impl *antigravity.Provider
 }
 
-func detectModelFromContent(content string) string {
-	lower := strings.ToLower(content)
-	if strings.Contains(lower, "gemini 3.7 flash") || strings.Contains(lower, "gemini-3.7-flash") {
-		return "gemini-3.7-flash"
-	} else if strings.Contains(lower, "gemini 3.7 pro") || strings.Contains(lower, "gemini-3.7-pro") {
-		return "gemini-3.7-pro"
-	} else if strings.Contains(lower, "gemini 2.5 flash") || strings.Contains(lower, "gemini-2.5-flash") {
-		return "gemini-2.5-flash"
-	} else if strings.Contains(lower, "gemini 2.5 pro") || strings.Contains(lower, "gemini-2.5-pro") {
-		return "gemini-2.5-pro"
-	} else if strings.Contains(lower, "claude 3.7 sonnet") || strings.Contains(lower, "claude-3-7-sonnet") {
-		return "claude-3-7-sonnet"
-	} else if strings.Contains(lower, "claude 3.5 sonnet") || strings.Contains(lower, "claude-3-5-sonnet") {
-		return "claude-3-5-sonnet"
-	} else if strings.Contains(lower, "claude 3.5 haiku") || strings.Contains(lower, "claude-3-5-haiku") {
-		return "claude-3-5-haiku"
-	} else if strings.Contains(lower, "gpt-4o-mini") {
-		return "gpt-4o-mini"
-	} else if strings.Contains(lower, "gpt-4o") {
-		return "gpt-4o"
-	} else if strings.Contains(lower, "o3-mini") {
-		return "o3-mini"
+// NewAntigravityParser creates an Antigravity parser instance.
+func NewAntigravityParser() *AntigravityParser {
+	return &AntigravityParser{
+		impl: antigravity.New(),
 	}
-	return ""
 }
 
 func (p *AntigravityParser) Parse(line string, sessionID string) []*events.Event {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return nil
+	if p.impl == nil {
+		p.impl = antigravity.New()
 	}
-
-	var entry struct {
-		StepIndex int    `json:"step_index"`
-		Type      string `json:"type"`
-		Source    string `json:"source"`
-		Status    string `json:"status"`
-		Content   string `json:"content"`
-		Thinking  string `json:"thinking"`
-		ToolCalls []struct {
-			Name string         `json:"name"`
-			Args map[string]any `json:"args"`
-		} `json:"tool_calls"`
-	}
-
-	if err := json.Unmarshal([]byte(line), &entry); err != nil {
-		return nil
-	}
-
-	// Detect model switch in user input or system settings
-	if detected := detectModelFromContent(entry.Content); detected != "" {
-		p.activeModel = detected
-	}
-	if p.activeModel == "" {
-		p.activeModel = "gemini-3.7-flash" // default for modern Antigravity
-	}
-
-	var res []*events.Event
-
-	// 1. If there is reasoning / thinking text
-	if entry.Thinking != "" {
-		preview := strings.Split(strings.TrimSpace(entry.Thinking), "\n")[0]
-		preview = strings.Trim(preview, "*#` ")
-		if len(preview) > 60 {
-			preview = preview[:58] + "…"
-		}
-		if preview == "" {
-			preview = "Analyzing next steps"
-		}
-
-		summaryClean := strings.TrimSpace(entry.Thinking)
-		if len(summaryClean) > 160 {
-			summaryClean = summaryClean[:158] + "…"
-		}
-
-		evt := events.NewEvent(
-			fmt.Sprintf("think-%d-%d", entry.StepIndex, time.Now().UnixNano()),
-			sessionID,
-			events.TypeAgentThink,
-			"agent-foreman",
-			preview,
-		).
-			WithRole(events.RoleForeman).
-			WithStation(events.StationForemanDesk).
-			WithSummary(summaryClean).
-			WithPayload("thinking", entry.Thinking).
-			WithPayload("detectedSource", "antigravity").
-			WithPayload("detectedModel", p.activeModel).
-			WithPayload("stepIndex", entry.StepIndex)
-
-		res = append(res, evt)
-	}
-
-	// 2. Map tool calls to workstations
-	for idx, tc := range entry.ToolCalls {
-		evtID := fmt.Sprintf("tool-%d-%d-%d", entry.StepIndex, idx, time.Now().UnixNano())
-		name := tc.Name
-		args := tc.Args
-		if args == nil {
-			args = make(map[string]any)
-		}
-
-		var role events.AgentRole = events.RoleCrafter
-		var station events.StationType = events.StationForemanDesk
-		var evtType events.Type = events.TypeToolCall
-		title := fmt.Sprintf("Tool: %s", name)
-		summary := fmt.Sprintf("Invoking %s", name)
-		toolModel := p.activeModel
-
-		switch name {
-		case "view_file", "read_resource", "read_url_content":
-			role = events.RoleInspector
-			station = events.StationFilingVault
-			evtType = events.TypeFileRead
-			if path, ok := args["AbsolutePath"].(string); ok {
-				title = fmt.Sprintf("Reading: %s", filepath.Base(path))
-				summary = fmt.Sprintf("Inspecting file: %s", path)
-			}
-
-		case "list_dir":
-			role = events.RoleInspector
-			station = events.StationFilingVault
-			evtType = events.TypeFileRead
-			if path, ok := args["DirectoryPath"].(string); ok {
-				title = fmt.Sprintf("Listing: %s", filepath.Base(path))
-				summary = fmt.Sprintf("Listing directory: %s", path)
-			}
-
-		case "grep_search", "search_web":
-			role = events.RoleInspector
-			station = events.StationSearchRadar
-			evtType = events.TypeToolCall
-			if q, ok := args["Query"].(string); ok {
-				title = fmt.Sprintf("Search: %q", q)
-				summary = fmt.Sprintf("Scanning codebase for pattern %q", q)
-			}
-
-		case "replace_file_content", "write_to_file":
-			role = events.RoleCrafter
-			station = events.StationCNCLathe
-			evtType = events.TypeFileWrite
-			targetFile, _ := args["TargetFile"].(string)
-			if targetFile != "" {
-				title = fmt.Sprintf("Forging: %s", filepath.Base(targetFile))
-				summary = fmt.Sprintf("Editing / writing code to %s", targetFile)
-			} else {
-				title = "Forging Code Part"
-			}
-
-		case "run_command":
-			role = events.RoleTester
-			station = events.StationTestFurnace
-			evtType = events.TypeCommandRun
-			if cmd, ok := args["CommandLine"].(string); ok {
-				title = fmt.Sprintf("Exec: %s", cmd)
-				summary = fmt.Sprintf("Executing shell command: %s", cmd)
-			}
-
-		case "call_mcp_tool":
-			role = events.RoleOperator
-			station = events.StationPhoneBooth
-			evtType = events.TypeMCPCall
-			serverName, _ := args["ServerName"].(string)
-			toolName, _ := args["ToolName"].(string)
-			title = fmt.Sprintf("MCP: %s / %s", serverName, toolName)
-			summary = fmt.Sprintf("Calling tool %s on MCP server %s", toolName, serverName)
-
-		case "invoke_subagent":
-			role = events.RoleForeman
-			station = events.StationForemanDesk
-			evtType = events.TypeSubagentDelegate
-			title = "Summoning Subagent Specialist"
-			summary = "Delegating subtask to child agent"
-			if subagents, ok := args["Subagents"].([]any); ok && len(subagents) > 0 {
-				if firstSub, ok := subagents[0].(map[string]any); ok {
-					subRole, _ := firstSub["Role"].(string)
-					subModel, _ := firstSub["Model"].(string)
-					if subRole != "" {
-						title = fmt.Sprintf("Summoning: %s", subRole)
-					}
-					if subModel != "" {
-						summary = fmt.Sprintf("Spawning %s subagent with model %s", subRole, subModel)
-						if subModel == "flash" || subModel == "flash_lite" {
-							toolModel = "gemini-3.7-flash"
-						}
-					}
-				}
-			}
-		}
-
-		evt := events.NewEvent(evtID, sessionID, evtType, "agent-foreman", title).
-			WithRole(role).
-			WithStation(station).
-			WithSummary(summary).
-			WithPayload("tool", name).
-			WithPayload("args", args).
-			WithPayload("detectedSource", "antigravity").
-			WithPayload("detectedModel", toolModel).
-			WithPayload("stepIndex", entry.StepIndex)
-
-		res = append(res, evt)
-	}
-
-	return res
+	return p.impl.ParseLine(line, sessionID)
 }
