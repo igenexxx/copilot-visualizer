@@ -106,8 +106,8 @@ class App {
             </div>
           </div>
 
-          <div class="hud-overlay">
-            <!-- RPG Character Card -->
+          <!-- Top-Left: RPG Character Card -->
+          <div class="hud-top-left">
             <div class="rpg-card">
               <div class="rpg-header">
                 <div class="rpg-name-badge">
@@ -144,7 +144,7 @@ class App {
                 <div class="rpg-bar-wrapper">
                   <div class="rpg-bar-label">
                     <span>EXP (Progression)</span>
-                    <span id="rpg-xp-val">0/300 XP</span>
+                    <span id="rpg-xp-val">0/350 XP</span>
                   </div>
                   <div class="rpg-progress-track">
                     <div id="rpg-xp-fill" class="rpg-fill-xp" style="width: 0%;"></div>
@@ -152,67 +152,67 @@ class App {
                 </div>
               </div>
             </div>
+          </div>
 
-            <!-- Tokenomics & Cost HUD -->
-            <div class="tokenomics-container">
-              <!-- Analog Context Window Silo Gauge -->
-              <div class="silo-card" title="Analog Context Window Depth Silo">
-                <div class="silo-tank-wrapper">
-                  <div id="silo-fill" class="silo-plasma-fill" style="height: 5%;"></div>
-                  <div class="silo-ticks">
-                    <div class="silo-tick-line"></div>
-                    <div class="silo-tick-line"></div>
-                    <div class="silo-tick-line"></div>
-                    <div class="silo-tick-line"></div>
-                  </div>
-                </div>
-                <div class="silo-info">
-                  <span class="silo-title">CONTEXT SILO</span>
-                  <span id="silo-depth" class="silo-depth-val">0k / 200k</span>
-                  <span id="silo-percent" class="silo-pct">0.0% FULL</span>
-                </div>
+          <!-- Top-Center: Metrics Summary Bar -->
+          <div class="hud-top-center">
+            <div class="hud-card">
+              <span>EVENTS</span>
+              <span id="hud-events" class="hud-val">0</span>
+            </div>
+            <div class="hud-card">
+              <span>ACTIVE WORKERS</span>
+              <span id="hud-workers" class="hud-val">1</span>
+            </div>
+            <div class="hud-card">
+              <span>FILES FORGED</span>
+              <span id="hud-files" class="hud-val">0</span>
+            </div>
+            <div class="hud-card">
+              <span>MCP RPC CALLS</span>
+              <span id="hud-mcp" class="hud-val">0</span>
+            </div>
+          </div>
+
+          <!-- Top-Right: Mechanical USD Cost Odometer -->
+          <div class="hud-top-right">
+            <div class="odometer-card" title="Real-time LLM API Cost Odometer based on active agent telemetry">
+              <div class="odometer-title-row">
+                <span id="odometer-agent-badge" class="odometer-model-badge">🔮 Antigravity (Gemini 2.5)</span>
+                <select id="pricing-model-select" class="speed-select" style="padding: 1px 4px; font-size: 8px;">
+                  <option value="antigravity" selected>Gemini 2.5 Pro</option>
+                  <option value="claude_code">Claude 3.7 Sonnet</option>
+                  <option value="copilot_cli">GPT-4o (Copilot)</option>
+                </select>
               </div>
-
-              <!-- Mechanical USD Cost Odometer -->
-              <div class="odometer-card" title="Real-time LLM API Cost Odometer">
-                <div class="odometer-title-row">
-                  <span>API COST ODOMETER</span>
-                  <select id="pricing-model-select" class="speed-select" style="padding: 1px 4px; font-size: 8px;">
-                    <option value="claude35">Claude 3.5</option>
-                    <option value="gpt4o">GPT-4o</option>
-                    <option value="gemini15">Gemini 1.5</option>
-                  </select>
-                </div>
-                <div class="odometer-counter">
-                  <span class="odometer-currency">$</span>
-                  <span id="odometer-val" class="odometer-val">0.0000</span>
-                  <span style="font-size: 9px; color: var(--text-muted); font-family: monospace;">USD</span>
-                </div>
-                <div class="odometer-breakdown">
-                  <span id="odometer-in">In: 0k</span>
-                  <span id="odometer-out">Out: 0k</span>
-                  <span id="odometer-cache">Cache: 0k</span>
-                </div>
+              <div class="odometer-counter">
+                <span class="odometer-currency">$</span>
+                <span id="odometer-val" class="odometer-val">0.0000</span>
+                <span style="font-size: 9px; color: var(--text-muted); font-family: monospace;">USD</span>
+              </div>
+              <div class="odometer-breakdown">
+                <span id="odometer-in">In: 0.0k</span>
+                <span id="odometer-out">Out: 0.0k</span>
+                <span id="odometer-cache">Cache: 0.0k</span>
               </div>
             </div>
+          </div>
 
-            <div class="hud-row">
-              <div class="hud-card">
-                <span>EVENTS</span>
-                <span id="hud-events" class="hud-val">0</span>
+          <!-- Right Viewport Dock: Vertical Analog Context Window Silo Gauge -->
+          <div class="silo-dock" title="Analog Context Window Depth Silo (Scale 0 to Max Model Limit)">
+            <div class="silo-tank-wrapper">
+              <div id="silo-fill" class="silo-plasma-fill" style="height: 3%;"></div>
+              <div class="silo-ticks">
+                <div class="silo-tick-line"></div>
+                <div class="silo-tick-line"></div>
+                <div class="silo-tick-line"></div>
+                <div class="silo-tick-line"></div>
               </div>
-              <div class="hud-card">
-                <span>ACTIVE WORKERS</span>
-                <span id="hud-workers" class="hud-val">1</span>
-              </div>
-              <div class="hud-card">
-                <span>FILES FORGED</span>
-                <span id="hud-files" class="hud-val">0</span>
-              </div>
-              <div class="hud-card">
-                <span>MCP RPC CALLS</span>
-                <span id="hud-mcp" class="hud-val">0</span>
-              </div>
+            </div>
+            <div class="silo-info">
+              <span class="silo-title">CONTEXT SILO</span>
+              <span id="silo-depth" class="silo-depth-val">0k / 2.0M</span>
+              <span id="silo-percent" class="silo-pct">0.0% FULL</span>
             </div>
           </div>
 
@@ -740,6 +740,7 @@ class App {
     if (sessions && sessions.length > 0) {
       const active = sessions[0];
       this.activeSessionId = active.id;
+      this.tokenomics.setSource(active.source);
       const sessEl = document.getElementById('session-text');
       if (sessEl) {
         sessEl.textContent = `${active.source.toUpperCase()}: ${active.id.slice(0, 10)}`;
@@ -939,21 +940,34 @@ class App {
     }
 
     this.tokenomics.onUpdate = (state) => {
+      // 0. Update Model Badge & Selector
+      const badgeEl = document.getElementById('odometer-agent-badge');
+      if (badgeEl) {
+        badgeEl.textContent = state.currentModel.agentLabel;
+        badgeEl.style.borderColor = state.currentModel.badgeColor;
+        badgeEl.style.color = state.currentModel.badgeColor;
+      }
+      if (select && select.value !== state.currentModel.id) {
+        select.value = state.currentModel.id;
+      }
+
       // 1. Update Silo Tank Fill & Depth
       const fillEl = document.getElementById('silo-fill');
       const depthEl = document.getElementById('silo-depth');
       const pctEl = document.getElementById('silo-percent');
 
       if (fillEl) {
-        fillEl.style.height = `${Math.max(4, Math.min(100, state.contextPercent))}%`;
+        fillEl.style.height = `${Math.max(3, Math.min(100, state.contextPercent))}%`;
         fillEl.classList.toggle('warn', state.contextPercent >= 60 && state.contextPercent < 80);
         fillEl.classList.toggle('danger', state.contextPercent >= 80);
       }
 
       if (depthEl) {
         const currK = (state.contextTokens / 1000).toFixed(1);
-        const maxK = (state.maxContextTokens / 1000).toFixed(0);
-        depthEl.textContent = `${currK}k / ${maxK}k`;
+        const maxK = state.maxContextTokens >= 1_000_000 
+          ? `${(state.maxContextTokens / 1_000_000).toFixed(1)}M` 
+          : `${(state.maxContextTokens / 1000).toFixed(0)}k`;
+        depthEl.textContent = `${currK}k / ${maxK}`;
       }
 
       if (pctEl) {

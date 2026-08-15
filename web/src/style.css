@@ -256,35 +256,46 @@ canvas {
   display: block;
 }
 
-.hud-overlay {
+/* Distributed HUD System */
+.hud-top-left {
   position: absolute;
   top: 12px;
   left: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
-  z-index: 10;
+  z-index: 12;
+  pointer-events: auto;
 }
 
-.hud-row {
+.hud-top-center {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   gap: 8px;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.hud-top-right {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 12;
+  pointer-events: auto;
 }
 
 /* RPG Character Card */
 .rpg-card {
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.92);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(245, 158, 11, 0.35);
   border-radius: 8px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  width: 280px;
+  gap: 5px;
+  width: 250px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-  pointer-events: auto;
 }
 
 .rpg-header {
@@ -324,7 +335,7 @@ canvas {
 .rpg-bar-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .rpg-bar-wrapper {
@@ -342,7 +353,7 @@ canvas {
 }
 
 .rpg-progress-track {
-  height: 6px;
+  height: 5px;
   background: #1e293b;
   border-radius: 3px;
   overflow: hidden;
@@ -365,6 +376,165 @@ canvas {
   height: 100%;
   background: linear-gradient(90deg, #f59e0b, #fbbf24);
   transition: width 0.3s ease;
+}
+
+/* Mechanical USD Cost Odometer (Top-Right Dock) */
+.odometer-card {
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 260px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.odometer-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  font-family: var(--font-mono);
+}
+
+.odometer-model-badge {
+  background: rgba(168, 85, 247, 0.2);
+  border: 1px solid #a855f7;
+  color: #c084fc;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.odometer-counter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #090d16;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.odometer-currency {
+  color: var(--accent-emerald);
+  font-weight: 800;
+  font-size: 14px;
+  font-family: var(--font-mono);
+}
+
+.odometer-val {
+  color: #f8fafc;
+  font-weight: 800;
+  font-size: 15px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+}
+
+.odometer-breakdown {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* Vertical Context Silo Gauge Dock (Right Edge) */
+.silo-dock {
+  position: absolute;
+  top: 100px;
+  right: 12px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 12;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+
+.silo-tank-wrapper {
+  position: relative;
+  width: 24px;
+  height: 120px;
+  background: #090d16;
+  border: 1.5px solid #334155;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.8);
+}
+
+.silo-plasma-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(0deg, #10b981, #34d399);
+  border-radius: 0 0 10px 10px;
+  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+}
+
+.silo-plasma-fill.warn {
+  background: linear-gradient(0deg, #f59e0b, #fbbf24);
+}
+
+.silo-plasma-fill.danger {
+  background: linear-gradient(0deg, #ef4444, #f87171);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.7);
+  animation: pulse-danger 1s infinite alternate;
+}
+
+.silo-ticks {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 6px 2px;
+  pointer-events: none;
+}
+
+.silo-tick-line {
+  height: 1px;
+  width: 6px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.silo-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.silo-title {
+  font-size: 8px;
+  font-weight: 800;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.silo-depth-val {
+  font-size: 10px;
+  font-weight: 800;
+  color: #38bdf8;
+  font-family: var(--font-mono);
+}
+
+.silo-pct {
+  font-size: 8px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
 }
 
 /* RPG Hotbar (Action Spells & MCP) */
@@ -449,162 +619,6 @@ canvas {
   margin: 4px 2px;
 }
 
-/* Context Silo Tank & Mechanical Odometer HUD */
-.tokenomics-container {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-
-/* Mechanical USD Cost Odometer */
-.odometer-card {
-  background: rgba(15, 23, 42, 0.9);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 8px 12px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 4px;
-  min-width: 170px;
-  pointer-events: auto;
-}
-
-.odometer-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 9px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-}
-
-.odometer-counter {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  background: #090d16;
-  border: 1px solid #1e293b;
-  border-radius: 4px;
-  padding: 4px 6px;
-}
-
-.odometer-currency {
-  color: var(--accent-emerald);
-  font-weight: 800;
-  font-size: 13px;
-  font-family: var(--font-mono);
-}
-
-.odometer-val {
-  color: #f8fafc;
-  font-weight: 800;
-  font-size: 14px;
-  font-family: var(--font-mono);
-  letter-spacing: 0.08em;
-}
-
-.odometer-breakdown {
-  display: flex;
-  justify-content: space-between;
-  font-size: 8px;
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
-}
-
-/* Analog Context Window Silo Gauge */
-.silo-card {
-  background: rgba(15, 23, 42, 0.9);
-  backdrop-filter: blur(12px);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  pointer-events: auto;
-}
-
-.silo-tank-wrapper {
-  position: relative;
-  width: 22px;
-  height: 64px;
-  background: #090d16;
-  border: 1.5px solid #334155;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.8);
-}
-
-.silo-plasma-fill {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: linear-gradient(0deg, #10b981, #34d399);
-  border-radius: 0 0 10px 10px;
-  transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
-}
-
-.silo-plasma-fill.warn {
-  background: linear-gradient(0deg, #f59e0b, #fbbf24);
-}
-
-.silo-plasma-fill.danger {
-  background: linear-gradient(0deg, #ef4444, #f87171);
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
-  animation: pulse-danger 1s infinite alternate;
-}
-
-@keyframes pulse-danger {
-  0% { opacity: 0.8; }
-  100% { opacity: 1; }
-}
-
-.silo-ticks {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 4px 2px;
-  pointer-events: none;
-}
-
-.silo-tick-line {
-  height: 1px;
-  width: 5px;
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.silo-info {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: 100%;
-  gap: 2px;
-}
-
-.silo-title {
-  font-size: 9px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-}
-
-.silo-depth-val {
-  font-size: 11px;
-  font-weight: 800;
-  color: #38bdf8;
-  font-family: var(--font-mono);
-}
-
-.silo-pct {
-  font-size: 9px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-}
 
 /* Level Up Celebration Modal */
 .levelup-overlay {
