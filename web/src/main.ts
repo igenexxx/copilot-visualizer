@@ -1454,13 +1454,7 @@ class App {
         this.cognitiveHud.update(this.pendingCogStatus, this.pendingLoopStatus);
       }
 
-      if (
-        this.missionControl?.isExpanded &&
-        this.pendingContextStatus &&
-        this.pendingGoalStatus &&
-        this.pendingBlastStatus &&
-        this.pendingWaterfallStatus
-      ) {
+      if (this.missionControl?.isExpanded) {
         this.missionControl.update(
           this.pendingContextStatus,
           this.pendingGoalStatus,

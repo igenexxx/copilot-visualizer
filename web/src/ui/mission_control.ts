@@ -272,128 +272,137 @@ export class MissionControlPanel {
     blast?: BlastRadiusTelemetry | null,
     waterfall?: WaterfallTelemetry | null
   ): void {
-    if (!this.isExpanded || !context || !goal || !blast || !waterfall) return;
+    if (!this.isExpanded) return;
+
     // 1. Quick Bar
     const qContext = document.getElementById('mc-quick-context');
     const qBlast = document.getElementById('mc-quick-blast');
-    if (qContext) qContext.textContent = `Context: ${context.saturationPct}%`;
-    if (qBlast) {
+    if (context && qContext) qContext.textContent = `Context: ${context.saturationPct}%`;
+    if (blast && qBlast) {
       qBlast.textContent = `Blast: ${blast.severity}`;
       qBlast.className = `mc-badge-blast blast-${blast.severity.toLowerCase()}`;
     }
 
     // 2. Context Gauge
-    const modelId = document.getElementById('mc-model-badge');
-    const gaugePct = document.getElementById('mc-gauge-pct');
-    const gaugeTokens = document.getElementById('mc-gauge-tokens');
-    const radial = document.getElementById('mc-radial-gauge');
-    const tokSys = document.getElementById('mc-tok-sys');
-    const tokFile = document.getElementById('mc-tok-file');
-    const tokHist = document.getElementById('mc-tok-hist');
-    const cacheHit = document.getElementById('mc-cache-hit');
+    if (context) {
+      const modelId = document.getElementById('mc-model-badge');
+      const gaugePct = document.getElementById('mc-gauge-pct');
+      const gaugeTokens = document.getElementById('mc-gauge-tokens');
+      const radial = document.getElementById('mc-radial-gauge');
+      const tokSys = document.getElementById('mc-tok-sys');
+      const tokFile = document.getElementById('mc-tok-file');
+      const tokHist = document.getElementById('mc-tok-hist');
+      const cacheHit = document.getElementById('mc-cache-hit');
 
-    if (modelId) modelId.textContent = context.modelId;
-    if (gaugePct) gaugePct.textContent = `${context.saturationPct}%`;
-    if (gaugeTokens) {
-      const maxK = Math.round(context.maxContextTokens / 1000);
-      const currK = Math.round(context.currentTokens / 1000);
-      gaugeTokens.textContent = `${currK}k / ${maxK}k`;
+      if (modelId) modelId.textContent = context.modelId;
+      if (gaugePct) gaugePct.textContent = `${context.saturationPct}%`;
+      if (gaugeTokens) {
+        const maxK = Math.round(context.maxContextTokens / 1000);
+        const currK = Math.round(context.currentTokens / 1000);
+        gaugeTokens.textContent = `${currK}k / ${maxK}k`;
+      }
+      if (radial) {
+        radial.className = `mc-radial-gauge gauge-${context.safetyTier.toLowerCase()}`;
+      }
+      if (tokSys) tokSys.textContent = `${Math.round(context.breakdown.systemPromptTokens / 1000)}k`;
+      if (tokFile) tokFile.textContent = `${Math.round(context.breakdown.fileContentTokens / 1000)}k`;
+      if (tokHist) tokHist.textContent = `${Math.round(context.breakdown.historyTokens / 1000)}k`;
+      if (cacheHit) cacheHit.textContent = `${Math.round(context.cacheHitRatio * 100)}%`;
     }
-    if (radial) {
-      radial.className = `mc-radial-gauge gauge-${context.safetyTier.toLowerCase()}`;
-    }
-    if (tokSys) tokSys.textContent = `${Math.round(context.breakdown.systemPromptTokens / 1000)}k`;
-    if (tokFile) tokFile.textContent = `${Math.round(context.breakdown.fileContentTokens / 1000)}k`;
-    if (tokHist) tokHist.textContent = `${Math.round(context.breakdown.historyTokens / 1000)}k`;
-    if (cacheHit) cacheHit.textContent = `${Math.round(context.cacheHitRatio * 100)}%`;
 
     // 3. Goal Hierarchy
-    const breadcrumbs = document.getElementById('mc-breadcrumbs');
-    const checklistBox = document.getElementById('mc-checklist-box');
-    const checklistProgress = document.getElementById('mc-checklist-progress');
+    if (goal) {
+      const breadcrumbs = document.getElementById('mc-breadcrumbs');
+      const checklistBox = document.getElementById('mc-checklist-box');
+      const checklistProgress = document.getElementById('mc-checklist-progress');
 
-    if (checklistProgress) {
-      checklistProgress.textContent = `${goal.completedCount}/${goal.totalChecklistCount} Done`;
-    }
-    if (breadcrumbs && goal.breadcrumbs.length > 0) {
-      breadcrumbs.innerHTML = goal.breadcrumbs
-        .map((crumb, idx) => `<span class="crumb-${idx === 0 ? 'root' : idx === 1 ? 'sub' : 'action'}">${this.escape(crumb)}</span>`)
-        .join(' ➔ ');
-    }
-    if (checklistBox) {
-      if (goal.checklist.length === 0) {
-        checklistBox.innerHTML = `<div class="mc-empty-hint">Awaiting structured plan steps...</div>`;
-      } else {
-        checklistBox.innerHTML = goal.checklist
-          .map((item) => `
-            <div class="mc-checklist-item ${item.completed ? 'completed' : ''}">
-              <span class="chk-box">${item.completed ? '✅' : '⬜'}</span>
-              <span class="chk-text">${this.escape(item.text)}</span>
-            </div>
-          `)
-          .join('');
+      if (checklistProgress) {
+        checklistProgress.textContent = `${goal.completedCount}/${goal.totalChecklistCount} Done`;
+      }
+      if (breadcrumbs && goal.breadcrumbs.length > 0) {
+        breadcrumbs.innerHTML = goal.breadcrumbs
+          .map((crumb, idx) => `<span class="crumb-${idx === 0 ? 'root' : idx === 1 ? 'sub' : 'action'}">${this.escape(crumb)}</span>`)
+          .join(' ➔ ');
+      }
+      if (checklistBox) {
+        if (goal.checklist.length === 0) {
+          checklistBox.innerHTML = `<div class="mc-empty-hint">Awaiting structured plan steps...</div>`;
+        } else {
+          checklistBox.innerHTML = goal.checklist
+            .map((item) => `
+              <div class="mc-checklist-item ${item.completed ? 'completed' : ''}">
+                <span class="chk-box">${item.completed ? '✅' : '⬜'}</span>
+                <span class="chk-text">${this.escape(item.text)}</span>
+              </div>
+            `)
+            .join('');
+        }
       }
     }
 
     // 4. Blast Radius
-    const sevBadge = document.getElementById('mc-severity-badge');
-    const filesTouched = document.getElementById('mc-files-touched');
-    const linesAdd = document.getElementById('mc-lines-add');
-    const linesRem = document.getElementById('mc-lines-rem');
-    const pkgList = document.getElementById('mc-package-list');
+    if (blast) {
+      const sevBadge = document.getElementById('mc-severity-badge');
+      const filesTouched = document.getElementById('mc-files-touched');
+      const linesAdd = document.getElementById('mc-lines-add');
+      const linesRem = document.getElementById('mc-lines-rem');
+      const pkgList = document.getElementById('mc-package-list');
 
-    if (sevBadge) {
-      sevBadge.textContent = blast.severity;
-      sevBadge.className = `mc-severity-badge severity-${blast.severity.toLowerCase()}`;
-    }
-    if (filesTouched) filesTouched.textContent = String(blast.totalFilesTouched);
-    if (linesAdd) linesAdd.textContent = `+${blast.totalLinesAdded}`;
-    if (linesRem) linesRem.textContent = `-${blast.totalLinesRemoved}`;
+      if (sevBadge) {
+        sevBadge.textContent = blast.severity;
+        sevBadge.className = `mc-severity-badge severity-${blast.severity.toLowerCase()}`;
+      }
+      if (filesTouched) filesTouched.textContent = String(blast.totalFilesTouched);
+      if (linesAdd) linesAdd.textContent = `+${blast.totalLinesAdded}`;
+      if (linesRem) linesRem.textContent = `-${blast.totalLinesRemoved}`;
 
-    if (pkgList) {
-      if (blast.packages.length === 0) {
-        pkgList.innerHTML = `<div class="mc-empty-hint">No packages modified yet</div>`;
-      } else {
-        pkgList.innerHTML = blast.packages
-          .slice(0, 4)
-          .map((pkg) => `
-            <div class="mc-pkg-row">
-              <span class="pkg-name">${this.escape(pkg.packageName)}</span>
-              <span class="pkg-stats">${pkg.filesTouched} files (+${pkg.linesAdded}/-${pkg.linesRemoved})</span>
-            </div>
-          `)
-          .join('');
+      if (pkgList) {
+        if (blast.packages.length === 0) {
+          pkgList.innerHTML = `<div class="mc-empty-hint">No packages modified yet</div>`;
+        } else {
+          pkgList.innerHTML = blast.packages
+            .slice(0, 4)
+            .map((pkg) => `
+              <div class="mc-pkg-row">
+                <span class="pkg-name">${this.escape(pkg.packageName)}</span>
+                <span class="pkg-stats">${pkg.filesTouched} files (+${pkg.linesAdded}/-${pkg.linesRemoved})</span>
+              </div>
+            `)
+            .join('');
+        }
       }
     }
 
     // 5. Tool Execution Waterfall
-    const llmTotal = document.getElementById('mc-llm-total');
-    const toolTotal = document.getElementById('mc-tool-total');
-    const avgLatency = document.getElementById('mc-avg-latency');
-    const stream = document.getElementById('mc-waterfall-stream');
+    if (waterfall) {
+      const llmTotal = document.getElementById('mc-llm-total');
+      const toolTotal = document.getElementById('mc-tool-total');
+      const avgLatency = document.getElementById('mc-avg-latency');
+      const stream = document.getElementById('mc-waterfall-stream');
 
-    if (llmTotal) llmTotal.textContent = `${(waterfall.totalLlmTimeMs / 1000).toFixed(1)}s`;
-    if (toolTotal) toolTotal.textContent = `${(waterfall.totalToolTimeMs / 1000).toFixed(1)}s`;
-    if (avgLatency) avgLatency.textContent = `Avg Tool: ${waterfall.averageToolDurationMs}ms`;
+      if (llmTotal) llmTotal.textContent = `${(waterfall.totalLlmTimeMs / 1000).toFixed(1)}s`;
+      if (toolTotal) toolTotal.textContent = `${(waterfall.totalToolTimeMs / 1000).toFixed(1)}s`;
+      if (avgLatency) avgLatency.textContent = `Avg Tool: ${waterfall.averageToolDurationMs}ms`;
 
-    if (stream) {
-      if (waterfall.spans.length === 0) {
-        stream.innerHTML = `<div class="mc-empty-hint">Waiting for tool execution spans...</div>`;
-      } else {
-        stream.innerHTML = waterfall.spans
-          .slice(-6)
-          .map((span) => `
-            <div class="mc-span-row">
-              <div class="span-header">
-                <span class="span-title" style="color: ${span.color}">${this.escape(span.title)}</span>
-                <span class="span-dur">${span.durationMs}ms</span>
+      if (stream) {
+        if (waterfall.spans.length === 0) {
+          stream.innerHTML = `<div class="mc-empty-hint">Waiting for tool execution spans...</div>`;
+        } else {
+          stream.innerHTML = waterfall.spans
+            .slice(-6)
+            .map((span) => `
+              <div class="mc-span-row">
+                <div class="span-header">
+                  <span class="span-title" style="color: ${span.color}">${this.escape(span.title)}</span>
+                  <span class="span-dur">${span.durationMs}ms</span>
+                </div>
+                <div class="span-bar-track">
+                  <div class="span-bar-fill" style="width: ${Math.min(100, Math.max(8, span.durationMs / 40))}%; background: ${span.color}"></div>
+                </div>
               </div>
-              <div class="span-bar-track">
-                <div class="span-bar-fill" style="width: ${Math.min(100, Math.max(8, span.durationMs / 40))}%; background: ${span.color}"></div>
-              </div>
-            </div>
-          `)
-          .join('');
+            `)
+            .join('');
+        }
       }
     }
   }

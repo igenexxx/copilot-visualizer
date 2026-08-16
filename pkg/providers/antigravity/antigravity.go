@@ -143,6 +143,15 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 			summaryClean = summaryClean[:158] + "…"
 		}
 
+		thinkOutTokens := len(entry.Thinking) * 100 / 365
+		if thinkOutTokens < 40 {
+			thinkOutTokens = 40
+		}
+		thinkInTokens := len(entry.Content) * 100 / 365
+		if entry.StepIndex == 0 {
+			thinkInTokens += 28250 // Baseline system prompt + tools + skills overhead
+		}
+
 		evt := events.NewEvent(
 			fmt.Sprintf("think-%d-%d", entry.StepIndex, time.Now().UnixNano()),
 			sessionID,
@@ -156,6 +165,8 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 			WithPayload("thinking", entry.Thinking).
 			WithPayload("detectedSource", "antigravity").
 			WithPayload("detectedModel", currentModel).
+			WithPayload("inputTokens", thinkInTokens).
+			WithPayload("outputTokens", thinkOutTokens).
 			WithPayload("stepIndex", entry.StepIndex)
 
 		res = append(res, evt)
@@ -169,6 +180,16 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 		if args == nil {
 			args = make(map[string]any)
 		}
+
+		argsBytes, _ := json.Marshal(args)
+		toolInTokens := (len(entry.Content) + len(argsBytes)) * 100 / 365
+		if toolInTokens < 120 {
+			toolInTokens = 120
+		}
+		if entry.StepIndex == 0 && entry.Thinking == "" {
+			toolInTokens += 28250
+		}
+		toolOutTokens := 60
 
 		var role events.AgentRole = events.RoleCrafter
 		var station events.StationType = events.StationForemanDesk
@@ -266,6 +287,8 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 			WithPayload("args", args).
 			WithPayload("detectedSource", "antigravity").
 			WithPayload("detectedModel", toolModel).
+			WithPayload("inputTokens", toolInTokens).
+			WithPayload("outputTokens", toolOutTokens).
 			WithPayload("stepIndex", entry.StepIndex)
 
 		res = append(res, evt)

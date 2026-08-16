@@ -102,6 +102,20 @@ func (a *AntigravityEnricher) EnrichUsage(sessionID string) (*UsageSummary, erro
 			content, _ := raw["content"].(string)
 			src, _ := raw["source"].(string)
 
+			thinking, _ := raw["thinking"].(string)
+			outputChars += int64(len(thinking))
+
+			if tools, ok := raw["tool_calls"].([]any); ok {
+				for _, t := range tools {
+					if tMap, ok := t.(map[string]any); ok {
+						if args, ok := tMap["args"].(map[string]any); ok {
+							argsBytes, _ := json.Marshal(args)
+							inputChars += int64(len(argsBytes))
+						}
+					}
+				}
+			}
+
 			// Detect model changes
 			if strings.Contains(content, "Model Selection") {
 				if strings.Contains(content, "Gemini 3.7 Flash") {
@@ -118,9 +132,12 @@ func (a *AntigravityEnricher) EnrichUsage(sessionID string) (*UsageSummary, erro
 			}
 		}
 
-		// Estimate 1 token ≈ 4 characters
-		summary.InputTokens = inputChars / 4
-		summary.OutputTokens = outputChars / 4
+		// Base system context (system prompt 9k + system tools 14.2k + skills 4.4k + subagents 0.6k = ~28.2k tokens)
+		const systemOverheadTokens = 28250
+
+		// Gemini tokenizer averages ~3.65 chars per token on code & Markdown
+		summary.InputTokens = (inputChars / 365 * 100) + systemOverheadTokens
+		summary.OutputTokens = outputChars / 365 * 100
 		summary.TurnCount = turnCount
 
 		// Pricing: Gemini 3.7 Flash ($0.075 / 1M in, $0.30 / 1M out)
