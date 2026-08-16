@@ -62,6 +62,15 @@ func (p *Provider) ExtractSessionID(filePath string) string {
 
 func (p *Provider) detectModel(content string) string {
 	lower := strings.ToLower(content)
+	// Only detect model if this is an explicit setting change or system configuration block
+	if !strings.Contains(lower, "user_settings_change") &&
+		!strings.Contains(lower, "model selection") &&
+		!strings.Contains(lower, "setting to") &&
+		!strings.Contains(lower, "active model") &&
+		!strings.Contains(lower, "model changed") {
+		return ""
+	}
+
 	if strings.Contains(lower, "gemini 3.7 flash") || strings.Contains(lower, "gemini-3.7-flash") {
 		return "gemini-3.7-flash"
 	} else if strings.Contains(lower, "gemini 3.7 pro") || strings.Contains(lower, "gemini-3.7-pro") {

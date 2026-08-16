@@ -79,6 +79,28 @@ func TestAntigravity_ModelDetectionMatrix(t *testing.T) {
 	}
 }
 
+func TestAntigravity_ConversationalMentionsDoNotSwitchModel(t *testing.T) {
+	p := antigravity.New()
+
+	// Initial setting to Gemini 3.7 Flash
+	settingLine := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_SETTINGS_CHANGE>\nModel Selection: Gemini 3.7 Flash\n</USER_SETTINGS_CHANGE>"}`
+	_ = p.ParseLine(settingLine, "sess-1")
+
+	// Conversational mention of GPT-4o or Claude in user message
+	userPrompt := `{"step_index":1,"source":"USER_EXPLICIT","type":"USER_INPUT","content":"Can you compare this implementation with gpt-4o and claude-3-7-sonnet?"}`
+	_ = p.ParseLine(userPrompt, "sess-1")
+
+	// Next thinking event should still be gemini-3.7-flash
+	thinkLine := `{"step_index":2,"source":"MODEL","type":"PLANNER_RESPONSE","thinking":"Evaluating architectures"}`
+	evts := p.ParseLine(thinkLine, "sess-1")
+	if len(evts) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evts))
+	}
+	if evts[0].Payload["detectedModel"] != "gemini-3.7-flash" {
+		t.Errorf("model was corrupted by conversational mention! expected gemini-3.7-flash, got %q", evts[0].Payload["detectedModel"])
+	}
+}
+
 func TestAntigravity_AllToolTypes(t *testing.T) {
 	p := antigravity.New()
 
