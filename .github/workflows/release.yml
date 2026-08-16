@@ -254,11 +254,12 @@ jobs:
             -platform darwin/${{ matrix.goarch }} \
             -ldflags "-s -w -X main.Version=${{ needs.version.outputs.version }}" \
             -o copilot-visualizer-desktop-darwin-${{ matrix.goarch }}
-          # Wails may produce .app bundle on macOS
-          if [ -d "build/bin/copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.app" ]; then
+          # Wails always produces a .app bundle on macOS (named after the app, not -o flag)
+          APP_BUNDLE=$(find build/bin -maxdepth 1 -name "*.app" -type d | head -1)
+          if [ -n "$APP_BUNDLE" ]; then
             cd build/bin
             zip -r ../../dist/copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.zip \
-              copilot-visualizer-desktop-darwin-${{ matrix.goarch }}.app
+              "$(basename "$APP_BUNDLE")"
           else
             mv build/bin/copilot-visualizer-desktop-darwin-${{ matrix.goarch }} dist/
             cd dist && tar -czf \
