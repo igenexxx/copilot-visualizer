@@ -133,15 +133,25 @@ sha256sum -c checksums.sha256
 
 ## 🔌 Integration Modes
 
-### 1. Auto-Discovery (Zero Config)
-The engine scans standard log directories and automatically connects to any running agent session:
+### 1. Auto-Discovery & Multi-Agent Session Enricher (Zero Config)
+The engine automatically monitors and unifies live telemetry across multiple AI coding clients using an event-driven kernel file watcher (`fsnotify` with zero polling):
 
 ```
-~/.gemini/antigravity-cli/brain/*/  → Antigravity sessions
-~/.copilot/*/                       → GitHub Copilot CLI sessions
+~/.copilot/session-store.db         → GitHub Copilot CLI (SQLite assistant_usage_events)
+~/.gemini/antigravity-cli/brain/*/  → Google Antigravity (Brain transcript_full.jsonl)
+~/.claude/projects/*.jsonl          → Anthropic Claude Code transcripts
 ```
 
-### 2. REST / WebSocket Event Ingestion
+- **Live REST Endpoints:**
+  - `GET /api/enrichment/usage?id=<sessionId>`: Returns exact model, active context window depth, input/output/cache tokens, and USD cost.
+  - `GET /api/enrichment/all`: Returns fleet-wide telemetry across all active agents.
+
+### 2. Auto-Follow / Session Lock Control
+The top navigation bar provides a **`🎯 FOLLOW: ON / LOCKED`** switch:
+- **`FOLLOW: ON`**: Automatically tracks and switches the visualizer to whichever agent is currently executing tool calls.
+- **`LOCKED`**: Locks the visualizer onto the currently selected session (e.g. while debugging a Copilot CLI run, background Antigravity or Claude turns will not hijack the screen).
+
+### 3. REST / WebSocket Event Ingestion
 ```bash
 curl -X POST http://localhost:9876/api/events \
   -H "Content-Type: application/json" \
@@ -155,7 +165,7 @@ curl -X POST http://localhost:9876/api/events \
   }'
 ```
 
-### 3. MCP Proxy (Transparent JSON-RPC Shim)
+### 4. MCP Proxy (Transparent JSON-RPC Shim)
 MCP calls are **not intercepted automatically**. To get live (not log-based) MCP telemetry, run the proxy mode explicitly by wrapping your MCP server:
 
 ```bash
@@ -170,12 +180,12 @@ The proxy intercepts every JSON-RPC `tools/call` request and response in real ti
 
 > **Auto-Discovery** (the default mode) reads agent JSONL transcripts after the fact — MCP calls appear with a slight delay once the agent writes its step log to disk.
 
-### 4. JSONL Log Tailer
+### 5. JSONL Log Tailer
 ```bash
 ./copilot-visualizer --tail=/path/to/session.jsonl
 ```
 
-### 5. Desktop Wails IPC (programmatic)
+### 6. Desktop Wails IPC (programmatic)
 When running as a desktop app, frontend calls Go bindings directly:
 ```typescript
 // Available via window.go.main.App.*
@@ -189,7 +199,7 @@ await window.go.main.App.ScanRepoTree("/path/to/project")
 
 ## 💾 Data Storage & Replay Files
 
-Copilot Visualizer organizes persistent history and telemetry across two dedicated storage layers:
+Copilot Visualizer organizes persistent history and telemetry across dedicated storage layers:
 
 ### 1. Session Replay Tapes (`.tapes/`)
 - **Location:** `./.tapes/<tape-id>.json` (or configured directory via `-tapes-dir`)
@@ -245,6 +255,8 @@ copilot-visualizer/
 │   ├── events/          # Core Event type & constants
 │   ├── hub/             # WebSocket broadcast hub (history ring-buffer)
 │   ├── autodiscover/    # Session auto-discovery engine (file watcher)
+│   ├── enricher/        # Multi-provider telemetry & metadata enricher (Copilot, AGY, Claude)
+│   ├── copilotstore/    # Copilot CLI SQLite read-only query engine
 │   ├── simulator/       # Demo scenario event stream generator
 │   ├── recorder/        # Session tape recorder / replayer
 │   ├── sessionstore/    # Persistent session state (JSON, flushed async)
@@ -252,15 +264,17 @@ copilot-visualizer/
 │   ├── intervention/    # Human-in-the-loop intervention manager
 │   ├── mcpproxy/        # MCP JSON-RPC transparent proxy
 │   ├── tailer/          # JSONL log file tail watcher
-│   ├── server/          # HTTP router (REST + WebSocket)
+│   ├── server/          # HTTP router (REST + WebSocket + Enrichment endpoints)
 │   └── providers/       # Agent-specific event parsers
 │       ├── antigravity/ # AGY / Gemini CLI parser
 │       ├── claude/      # Claude session parser
-│       ├── copilot/     # GitHub Copilot parser
+│       ├── copilot/     # GitHub Copilot parser (view, rg, bash, edit)
 │       └── generic/     # Generic JSONL parser
 └── web/                 # Vite + TypeScript frontend
     ├── src/
     │   ├── canvas/      # Isometric factory floor renderer (Canvas 2D)
+    │   ├── analytics/   # Context Saturation, Goal Tracker, Blast Radius, Waterfall
+    │   ├── tokenomics/  # Tokenomics Tracker & multi-model pricing tables
     │   ├── components/  # UI panels (Mission Control, Sidebar, HUD)
     │   ├── services/    # ws.ts — dual-mode transport (Wails IPC / WebSocket)
     │   └── store/       # Reactive state (Zustand-like)
