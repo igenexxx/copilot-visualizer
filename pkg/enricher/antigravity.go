@@ -337,6 +337,20 @@ func (a *AntigravityEnricher) EnrichContext(sessionID string) (*SessionContext, 
 	}
 
 	// 4. Default Rules & Instructions
+	// 4. Instructions, Rules & Memory Tomes Discovery
+	// 4a. Read ~/.gemini/GEMINI.md
+	geminiMdPath := filepath.Join(a.baseDir, "GEMINI.md")
+	if c, err := os.ReadFile(geminiMdPath); err == nil && len(c) > 0 {
+		ctx.Rules = append(ctx.Rules, RuleItem{
+			ID:      "gemini_md_global",
+			Title:   "GEMINI.md (Global Instructions & Memories)",
+			Content: string(c),
+			Type:    "global",
+			Icon:    "🧠",
+		})
+	}
+
+	// 4b. Scan ~/.gemini/config/rules/
 	rulesDir := filepath.Join(a.baseDir, "config", "rules")
 	if entries, err := os.ReadDir(rulesDir); err == nil {
 		for _, entry := range entries {
@@ -346,19 +360,60 @@ func (a *AntigravityEnricher) EnrichContext(sessionID string) (*SessionContext, 
 					ID:      entry.Name(),
 					Title:   strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())),
 					Content: string(c),
-					Type:    "global",
+					Type:    "rule",
 					Icon:    "📜",
 				})
 			}
 		}
 	}
-	// Add user memory rule
+
+	// 4c. Scan Workspace instruction files (.github, CLAUDE.md, copilot-instructions.md, AGENT.md, .geminirules)
+	cwd, _ := os.Getwd()
+	workspaceInstructionCandidates := []struct {
+		relPath string
+		title   string
+		icon    string
+	}{
+		{".github/copilot-instructions.md", "copilot-instructions.md (GitHub)", "🐙"},
+		{".copilot-instructions.md", "copilot-instructions.md (Workspace)", "🐙"},
+		{"CLAUDE.md", "CLAUDE.md (Project Guide)", "📜"},
+		{".claude/CLAUDE.md", ".claude/CLAUDE.md", "📜"},
+		{"GEMINI.md", "GEMINI.md (Workspace)", "💎"},
+		{".geminirules", ".geminirules", "💎"},
+		{"AGENT.md", "AGENT.md (Agent Directives)", "🤖"},
+		{"AGENTS.md", "AGENTS.md (Multi-Agent Directives)", "🤖"},
+		{".cursorrules", ".cursorrules", "✨"},
+	}
+
+	for _, cand := range workspaceInstructionCandidates {
+		targetPath := filepath.Join(cwd, cand.relPath)
+		if c, err := os.ReadFile(targetPath); err == nil && len(c) > 0 {
+			ctx.Rules = append(ctx.Rules, RuleItem{
+				ID:      cand.relPath,
+				Title:   cand.title,
+				Content: string(c),
+				Type:    "workspace",
+				Icon:    cand.icon,
+			})
+		}
+	}
+
+	// 4d. System Directive: UI & Localization
 	ctx.Rules = append(ctx.Rules, RuleItem{
-		ID:      "user_global_memory",
-		Title:   "Engineering Guidelines (Zhenya)",
-		Content: "SOLID, DRY, KISS, YAGNI. Aim for 90%+ test coverage. Table-driven adversarial Go tests with -race. English UI only. iconv UTF-16LE for clipboard.",
-		Type:    "memory",
-		Icon:    "🧠",
+		ID:      "rule_ui_localization",
+		Title:   "UI & Localization Policy",
+		Content: "The User Interface (UI), including all component templates, labels, tooltips, buttons, legends, placeholders, modal windows, and preset queries, MUST ALWAYS be in English.",
+		Type:    "system",
+		Icon:    "🌐",
+	})
+
+	// 4e. System Directive: Web Application Standards
+	ctx.Rules = append(ctx.Rules, RuleItem{
+		ID:      "rule_web_app_standards",
+		Title:   "Web Application Development Standard",
+		Content: "Core: HTML/JS/CSS. Dynamic reactive design. Avoid cliché tropes. Vanilla CSS with precision typography, responsive grids, and micro-animations. SOLID, DRY, KISS, YAGNI.",
+		Type:    "system",
+		Icon:    "🎨",
 	})
 
 	// 5. Slash Commands

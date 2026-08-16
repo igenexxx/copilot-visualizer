@@ -140,6 +140,7 @@ export class InventoryModal {
         overlay.querySelectorAll('.inv-tab-btn').forEach((b) => b.classList.remove('active'));
         btn.classList.add('active');
         this.activeTab = btn.getAttribute('data-tab') as any;
+        this.selectedItem = null;
         this.renderGrid();
       });
     });
