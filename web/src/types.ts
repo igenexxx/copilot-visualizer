@@ -97,6 +97,8 @@ export interface WorkerAgent {
     text: string;
     expiresAt: number;
   };
+  targetQueue?: { x: number; y: number; station?: StationType; event?: VisualizerEvent }[];
+  speedMultiplier?: number;
   rpg?: RPGStats;
 }
 

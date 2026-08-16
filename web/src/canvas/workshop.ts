@@ -399,24 +399,52 @@ export class WorkshopCanvas {
     // 3. Route worker to station on this floor
     if (evt.station && floor.workstations.has(evt.station)) {
       const targetStation = floor.workstations.get(evt.station)!;
-      worker.targetX = targetStation.gridX;
-      worker.targetY = targetStation.gridY;
-      worker.currentStation = evt.station;
-      worker.activeEvent = evt;
-
-      targetStation.lastEvent = evt;
-      targetStation.itemsCount++;
-      targetStation.totalOperations++;
 
       if (isHistory) {
         // Position worker immediately at station without travel or heat spike
         worker.x = targetStation.gridX;
         worker.y = targetStation.gridY;
+        worker.targetX = targetStation.gridX;
+        worker.targetY = targetStation.gridY;
+        worker.currentStation = evt.station;
+        worker.activeEvent = evt;
         worker.state = 'idle';
+        worker.targetQueue = [];
       } else {
+        const dx = worker.targetX - worker.x;
+        const dy = worker.targetY - worker.y;
+        const currentDist = Math.hypot(dx, dy);
+
+        // If worker is already traveling or has pending work at a different station, enqueue this task!
+        if (currentDist > 0.4 || (worker.state === 'walking' && (worker.targetX !== targetStation.gridX || worker.targetY !== targetStation.gridY))) {
+          worker.targetQueue = worker.targetQueue || [];
+          const lastQueueItem = worker.targetQueue[worker.targetQueue.length - 1];
+          if (!lastQueueItem || lastQueueItem.station !== evt.station) {
+            if (worker.targetQueue.length < 8) {
+              worker.targetQueue.push({
+                x: targetStation.gridX,
+                y: targetStation.gridY,
+                station: evt.station,
+                event: evt,
+              });
+            }
+          }
+        } else {
+          worker.targetX = targetStation.gridX;
+          worker.targetY = targetStation.gridY;
+          worker.currentStation = evt.station;
+          worker.activeEvent = evt;
+        }
+
         targetStation.active = true;
         targetStation.pulseTime = 1.0;
+      }
 
+      targetStation.lastEvent = evt;
+      targetStation.itemsCount++;
+      targetStation.totalOperations++;
+
+      if (!isHistory) {
         // Live Machine Wear & Heat calculation
         let heatBoost = 12;
         let wearBoost = 0.6;
@@ -618,13 +646,44 @@ export class WorkshopCanvas {
         const dy = worker.targetY - worker.y;
         const dist = Math.hypot(dx, dy);
 
-        // Responsive, energetic movement speed (adaptive easing sprint: 0.20 - 0.35 tiles/frame)
-        const moveStep = Math.min(dist, Math.max(0.20, dist * 0.14));
+        const queueLen = worker.targetQueue?.length || 0;
+
+        // Dynamic speed based on destination queue pressure:
+        // 0 queued (single destination) -> 1.0x (Relaxed smooth walk, ~0.06 tiles/frame)
+        // 1 queued -> 1.4x (Brisk walk, ~0.085 tiles/frame)
+        // 2 queued -> 1.9x (Jog, ~0.115 tiles/frame)
+        // 3+ queued -> 2.6x (Sprint rush, ~0.16 tiles/frame)
+        let speedMult = 1.0;
+        if (queueLen === 1) speedMult = 1.4;
+        else if (queueLen === 2) speedMult = 1.9;
+        else if (queueLen >= 3) speedMult = 2.6;
+
+        worker.speedMultiplier = speedMult;
+
+        // Base step: smooth walk (0.055 + slight easing with dist)
+        const baseSpeed = 0.055 + Math.min(dist * 0.02, 0.025);
+        const moveStep = Math.min(dist, baseSpeed * speedMult);
 
         if (dist > 0.05) {
           worker.x += (dx / dist) * moveStep;
           worker.y += (dy / dist) * moveStep;
           worker.state = 'walking';
+
+          // Emit speed dust puffs when sprinting under high queue load
+          if (speedMult >= 1.9 && Math.random() < 0.25) {
+            const screenPos = this.isoToScreen(worker.x, worker.y, fl.level);
+            this.particles.push({
+              x: screenPos.x + (Math.random() - 0.5) * 6 * this.zoom,
+              y: screenPos.y + (Math.random() - 0.5) * 4 * this.zoom,
+              vx: -(dx / dist) * (0.8 + Math.random()),
+              vy: -(dy / dist) * 0.4 - 0.3,
+              color: speedMult >= 2.5 ? '#f59e0b' : '#38bdf8',
+              size: (1.5 + Math.random()) * this.zoom,
+              life: 1.0,
+              maxLife: 1.0,
+              floorLevel: fl.level,
+            });
+          }
 
           // Record motion breadcrumb trail point
           let lastPoint: WorkerTrailPoint | undefined;
@@ -659,8 +718,25 @@ export class WorkshopCanvas {
         } else {
           worker.x = worker.targetX;
           worker.y = worker.targetY;
-          if (worker.state === 'walking') {
-            worker.state = 'working';
+
+          // If there is an item in targetQueue, smoothly proceed to the next station
+          if (worker.targetQueue && worker.targetQueue.length > 0) {
+            const next = worker.targetQueue.shift()!;
+            worker.targetX = next.x;
+            worker.targetY = next.y;
+            worker.currentStation = next.station;
+            worker.activeEvent = next.event;
+            worker.state = 'walking';
+
+            if (next.station && fl.workstations.has(next.station)) {
+              const ws = fl.workstations.get(next.station)!;
+              ws.pulseTime = 1.0;
+              ws.active = true;
+            }
+          } else {
+            if (worker.state === 'walking') {
+              worker.state = 'working';
+            }
           }
         }
       }
@@ -1972,7 +2048,9 @@ export class WorkshopCanvas {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.fill();
 
-    const bounce = worker.state === 'walking' ? Math.sin(Date.now() / 120) * 2 * z : 0;
+    const speedMult = worker.speedMultiplier || 1.0;
+    const bounceFreq = Math.max(50, 140 / Math.sqrt(speedMult));
+    const bounce = worker.state === 'walking' ? Math.sin(Date.now() / bounceFreq) * 2 * z : 0;
     const bodyY = pos.y - 10 * z + bounce;
 
     ctx.fillStyle = worker.color;
@@ -1990,8 +2068,18 @@ export class WorkshopCanvas {
     ctx.textAlign = 'center';
     ctx.fillText(worker.name, pos.x, bodyY - 10 * z);
 
+    // Speed & Queue Load Indicator Badge when busy or sprinting
+    const queueLen = worker.targetQueue?.length || 0;
+    if (queueLen > 0 || (worker.state === 'walking' && speedMult > 1.3)) {
+      ctx.font = `bold ${Math.max(6, 7 * z)}px Inter, monospace`;
+      ctx.fillStyle = speedMult >= 2.0 ? '#fbbf24' : '#38bdf8';
+      const label = queueLen > 0 ? `⚡ +${queueLen}` : `⚡`;
+      ctx.fillText(label, pos.x, bodyY - 18 * z);
+    }
+
     if (worker.speechBubble && worker.speechBubble.expiresAt > Date.now()) {
-      this.drawSpeechBubble(pos.x, bodyY - 20 * z, worker.speechBubble.text);
+      const bubbleOffset = queueLen > 0 ? -26 * z : -20 * z;
+      this.drawSpeechBubble(pos.x, bodyY + bubbleOffset, worker.speechBubble.text);
     }
 
     ctx.restore();
