@@ -263,6 +263,8 @@ class App {
               </div>
               <button id="btn-open-inventory" class="btn-rpg-inventory" title="Open Agent Capabilities Inventory [I]">🎒 Capabilities Inventory [I]</button>
             </div>
+            <!-- Tower Matrix Multi-Agent Widget (Placed cleanly below RPG card) -->
+            <div id="skyscraper-dock" class="skyscraper-dock" style="display: none;"></div>
           </div>
 
           <!-- Top-Center: Metrics Summary Bar -->
@@ -322,9 +324,6 @@ class App {
               <span id="silo-percent" class="silo-pct">0.0% FULL</span>
             </div>
           </div>
-
-          <!-- Left Viewport Dock: Schematic Skyscraper Multi-Agent Tower Widget -->
-          <div id="skyscraper-dock" class="skyscraper-dock" style="display: none;"></div>
 
           <!-- RPG Action Spells & MCP Hotbar -->
           <div id="rpg-hotbar" class="rpg-hotbar"></div>
