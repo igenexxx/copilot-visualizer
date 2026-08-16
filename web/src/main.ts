@@ -1680,6 +1680,15 @@ class App {
       if (odoIn) odoIn.textContent = `In: ${(state.totalInputTokens / 1000).toFixed(1)}k`;
       if (odoOut) odoOut.textContent = `Out: ${(state.totalOutputTokens / 1000).toFixed(1)}k`;
       if (odoCache) odoCache.textContent = `Cache: ${(state.totalCachedTokens / 1000).toFixed(1)}k`;
+
+      // 3. Keep Mission Control Context Saturation perfectly in sync
+      this.pendingContextStatus = this.contextSaturation.syncWithTokenomics(
+        state.activeModel.id,
+        state.totalInputTokens,
+        state.totalOutputTokens,
+        state.totalCachedTokens
+      );
+      this.scheduleUIRefresh();
     };
 
     // Trigger initial render

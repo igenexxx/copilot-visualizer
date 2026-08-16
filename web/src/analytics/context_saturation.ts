@@ -1,4 +1,5 @@
 import type { VisualizerEvent } from '../types';
+import { ALL_PRICING_MODELS } from '../tokenomics/tracker';
 
 export type ContextSafetyTier = 'SAFE' | 'CAUTION' | 'DANGER';
 
@@ -20,20 +21,6 @@ export interface ContextSaturationTelemetry {
 }
 
 export class ContextSaturationEngine {
-  private static readonly MODEL_LIMITS: Record<string, number> = {
-    'gemini-3.7-flash': 1048576,
-    'gemini-3.7-pro': 1048576,
-    'gemini-2.5-flash': 1048576,
-    'gemini-2.5-pro': 1048576,
-    'claude-3-7-sonnet': 200000,
-    'claude-3-5-sonnet': 200000,
-    'claude-3-5-haiku': 200000,
-    'gpt-4o': 128000,
-    'gpt-4o-mini': 128000,
-    'gpt-4.5-preview': 128000,
-    'o3-mini': 128000,
-  };
-
   private activeModel: string = 'gemini-3.7-flash';
   private totalInputTokens: number = 0;
   private totalOutputTokens: number = 0;
@@ -45,7 +32,9 @@ export class ContextSaturationEngine {
   }
 
   public setModel(modelId: string): void {
-    this.activeModel = modelId || 'gemini-3.7-flash';
+    if (modelId) {
+      this.activeModel = modelId;
+    }
   }
 
   public reset(): void {
@@ -56,8 +45,9 @@ export class ContextSaturationEngine {
   }
 
   public processEvent(event: VisualizerEvent): ContextSaturationTelemetry {
-    if (event.payload?.model) {
-      this.setModel(String(event.payload.model));
+    const rawModel = event.payload?.detectedModel || event.payload?.model;
+    if (rawModel) {
+      this.setModel(String(rawModel));
     }
 
     if (typeof event.payload?.inputTokens === 'number') {
@@ -79,15 +69,29 @@ export class ContextSaturationEngine {
     return this.getTelemetry();
   }
 
+  public syncWithTokenomics(
+    modelId: string,
+    inputTokens: number,
+    outputTokens: number,
+    cachedTokens: number
+  ): ContextSaturationTelemetry {
+    if (modelId) this.activeModel = modelId;
+    this.totalInputTokens = inputTokens;
+    this.totalOutputTokens = outputTokens;
+    this.totalCachedTokens = cachedTokens;
+    return this.getTelemetry();
+  }
+
   public getTelemetry(): ContextSaturationTelemetry {
-    const maxContext = ContextSaturationEngine.MODEL_LIMITS[this.activeModel] || 200000;
+    const modelPricing = ALL_PRICING_MODELS[this.activeModel];
+    const maxContext = modelPricing ? modelPricing.maxContext : 200000;
 
-    const baseSystemTokens = 8500;
-    const historyTokens = Math.max(1200, Math.round(this.totalInputTokens * 0.35));
-    const fileTokens = Math.max(this.accumulatedFileTokens, Math.round(this.totalInputTokens * 0.45));
-    const outputBufferTokens = Math.max(4096, this.totalOutputTokens);
+    const baseSystemTokens = Math.min(8500, this.totalInputTokens > 0 ? 8500 : 0);
+    const historyTokens = Math.round(this.totalInputTokens * 0.4);
+    const fileTokens = Math.max(this.accumulatedFileTokens, Math.round(this.totalInputTokens * 0.5));
+    const outputBufferTokens = this.totalOutputTokens;
 
-    const currentTokens = Math.min(maxContext, baseSystemTokens + historyTokens + fileTokens + outputBufferTokens);
+    const currentTokens = Math.min(maxContext, this.totalInputTokens + this.totalOutputTokens);
     const saturationPct = Math.min(100, Math.round((currentTokens / maxContext) * 1000) / 10);
 
     let safetyTier: ContextSafetyTier = 'SAFE';

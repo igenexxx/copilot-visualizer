@@ -12,7 +12,7 @@ describe('ContextSaturationEngine', () => {
   it('should initialize with Gemini 1M context limit and safe tier', () => {
     const telemetry = engine.getTelemetry();
     expect(telemetry.modelId).toBe('gemini-3.7-flash');
-    expect(telemetry.maxContextTokens).toBe(1048576);
+    expect(telemetry.maxContextTokens).toBe(1000000);
     expect(telemetry.safetyTier).toBe('SAFE');
     expect(telemetry.saturationPct).toBeLessThan(10);
   });
