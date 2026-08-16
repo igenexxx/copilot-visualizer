@@ -1,11 +1,15 @@
 import type { RPGSkill, RPGStats, VisualizerEvent } from '../types';
 
 export class RPGEngine {
+  public dailyTokenBudget: number = 1000000;
+  public tokensBurnedToday: number = 0;
+  public thermalDamageTokens: number = 0;
+
   public stats: RPGStats = {
     level: 1,
     title: 'Junior Code Crafter',
-    hp: 100,
-    maxHp: 100,
+    hp: 1000000,
+    maxHp: 1000000,
     mp: 200000,
     maxMp: 200000,
     xp: 0,
@@ -13,6 +17,41 @@ export class RPGEngine {
     totalTokensBurned: 0,
     spellsCast: 0,
   };
+
+  constructor() {
+    this.loadDailyBudget();
+  }
+
+  public loadDailyBudget(): void {
+    try {
+      const saved = localStorage.getItem('copilot_daily_token_budget');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          this.dailyTokenBudget = parsed;
+        }
+      }
+    } catch (_) {}
+    this.stats.maxHp = this.dailyTokenBudget;
+    this.recalculateHp();
+  }
+
+  public setDailyTokenBudget(budgetTokens: number): void {
+    this.dailyTokenBudget = Math.max(10000, budgetTokens);
+    this.stats.maxHp = this.dailyTokenBudget;
+    try {
+      localStorage.setItem('copilot_daily_token_budget', String(this.dailyTokenBudget));
+    } catch (_) {}
+    this.recalculateHp();
+    if (this.onStatsChanged) {
+      this.onStatsChanged(this.stats);
+    }
+  }
+
+  public recalculateHp(): void {
+    const totalConsumed = this.tokensBurnedToday + this.thermalDamageTokens;
+    this.stats.hp = Math.max(0, this.stats.maxHp - totalConsumed);
+  }
 
   public skills: RPGSkill[] = [
     // Class Skills (Tools)
@@ -120,12 +159,13 @@ export class RPGEngine {
   public onStatsChanged?: (stats: RPGStats) => void;
   public applyOverheatDamage(overheatedStationsCount: number = 1, customDamage?: number): number {
     if (overheatedStationsCount <= 0) return 0;
-    const damage = customDamage ?? (overheatedStationsCount * 3);
-    this.stats.hp = Math.max(0, this.stats.hp - damage);
+    const damageTokens = customDamage ? customDamage * 1000 : (overheatedStationsCount * 4500);
+    this.thermalDamageTokens += damageTokens;
+    this.recalculateHp();
     if (this.onStatsChanged) {
       this.onStatsChanged(this.stats);
     }
-    return damage;
+    return Math.round(damageTokens / 1000);
   }
 
   public processEvent(
@@ -147,7 +187,8 @@ export class RPGEngine {
 
     // Apply immediate thermal stress damage if workstation was already overheating
     if (isOverheated) {
-      this.stats.hp = Math.max(0, this.stats.hp - 8);
+      this.thermalDamageTokens += 8000;
+      this.recalculateHp();
     }
 
     if (evt.type === 'file.write') {
@@ -164,7 +205,8 @@ export class RPGEngine {
       manaCost = 1200;
       // Recover HP on successful tests (if not under critical overheat)
       if (!isOverheated) {
-        this.stats.hp = Math.min(this.stats.maxHp, this.stats.hp + 5);
+        this.thermalDamageTokens = Math.max(0, this.thermalDamageTokens - 5000);
+        this.recalculateHp();
       }
     } else if (evt.type === 'checkpoint.request' || evt.type === 'checkpoint.decision') {
       triggeredSkillId = 'skill-barrier';
@@ -201,6 +243,9 @@ export class RPGEngine {
     this.stats.spellsCast++;
     this.stats.totalTokensBurned += manaCost;
     this.stats.mp = Math.max(0, this.stats.mp - manaCost);
+    // Token consumption reduces daily budget (HP)
+    this.tokensBurnedToday += manaCost;
+    this.recalculateHp();
     this.addExperience(xpGain, isHistory);
 
     if (this.onStatsChanged) {

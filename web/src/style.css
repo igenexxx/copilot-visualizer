@@ -2983,4 +2983,71 @@ canvas {
   color: var(--text-muted);
 }
 
+/* Daily Token Budget Controls inside Mechanics Lore */
+.daily-budget-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+
+.budget-preset-btn {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.budget-preset-btn:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #34d399;
+  transform: translateY(-1px);
+}
+
+.budget-preset-btn.active {
+  background: #10b981;
+  color: #0f172a;
+  border-color: #34d399;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+}
+
+.custom-budget-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.custom-budget-input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.custom-budget-apply-btn {
+  background: #38bdf8;
+  color: #0f172a;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-weight: 700;
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.custom-budget-apply-btn:hover {
+  background: #7dd3fc;
+}
+
 

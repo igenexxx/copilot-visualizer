@@ -12,8 +12,9 @@ describe('RPGEngine', () => {
   it('should initialize with default base stats', () => {
     expect(engine.stats.level).toBe(1);
     expect(engine.stats.title).toBe('Junior Code Crafter');
-    expect(engine.stats.hp).toBe(100);
-    expect(engine.stats.maxHp).toBe(100);
+    // HP now equals the daily token budget (default 1,000,000 tokens)
+    expect(engine.stats.hp).toBe(engine.dailyTokenBudget);
+    expect(engine.stats.maxHp).toBe(engine.dailyTokenBudget);
     expect(engine.stats.xp).toBe(0);
     expect(engine.skills.length).toBeGreaterThan(0);
   });
@@ -73,18 +74,19 @@ describe('RPGEngine', () => {
     expect(freshEngine.stats.spellsCast).toBe(42);
   });
 
-  it('should apply overheat damage and prevent HP from going below 0', () => {
-    engine.stats.hp = 20;
-    const dmg = engine.applyOverheatDamage(2, 6);
-    expect(dmg).toBe(6);
-    expect(engine.stats.hp).toBe(14);
+  it('should apply overheat damage in token units and prevent HP below 0', () => {
+    // customDamage is multiplied by 1000 to convert to tokens
+    const dmg = engine.applyOverheatDamage(2, 6); // 6 * 1000 = 6000 tokens
+    expect(dmg).toBe(6); // returns damage in units of 1k tokens
+    expect(engine.stats.hp).toBe(engine.dailyTokenBudget - 6000);
 
-    engine.applyOverheatDamage(5, 50);
+    // Apply enough to drain full budget
+    engine.applyOverheatDamage(1, engine.dailyTokenBudget / 1000);
     expect(engine.stats.hp).toBe(0);
   });
 
-  it('should take immediate thermal damage when handling event on an overheated station', () => {
-    engine.stats.hp = 100;
+  it('should take immediate thermal damage (8k tokens) when handling event on overheated station', () => {
+    const initialHp = engine.stats.hp;
     const evt: VisualizerEvent = {
       id: 'e-overheat',
       sessionId: 's-1',
@@ -97,7 +99,8 @@ describe('RPGEngine', () => {
     };
 
     engine.handleEvent(evt, false, true);
-    expect(engine.stats.hp).toBe(92); // 100 - 8 overheat damage
+    // 8000 tokens thermal + 850 manaCost tokens burned
+    expect(engine.stats.hp).toBe(initialHp - 8000 - 850);
   });
 
   it('should handle adversarial / malformed loadState inputs without crashing', () => {

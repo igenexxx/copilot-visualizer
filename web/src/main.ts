@@ -1487,7 +1487,7 @@ class App {
             this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-${rpgRes.manaSpent} MP`, '#38bdf8');
           }
           if (isOverheated) {
-            this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-8 HP 🔥`, '#ef4444');
+            this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-8k Tokens 🔥`, '#ef4444');
           }
         }
       }
@@ -1832,7 +1832,8 @@ class App {
         const activeFloor = this.workshopCanvas.floors[this.workshopCanvas.activeFloorIndex] || this.workshopCanvas.floors[0];
         if (activeFloor) {
           for (const worker of activeFloor.workers.values()) {
-            this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-${dmg} HP 🔥`, '#ef4444');
+            const dmgK = dmg >= 1000 ? `${(dmg / 1000).toFixed(1)}k` : String(dmg);
+            this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-${dmgK} Tokens 🔥`, '#ef4444');
           }
         }
       }
@@ -2040,7 +2041,9 @@ class App {
     if (spellsEl) spellsEl.textContent = `${s.spellsCast} Casts`;
 
     if (hpVal && hpFill) {
-      hpVal.textContent = `${s.hp}/${s.maxHp} HP`;
+      const hpK = s.hp >= 1000000 ? `${(s.hp / 1000000).toFixed(2)}M` : `${(s.hp / 1000).toFixed(0)}k`;
+      const maxHpK = s.maxHp >= 1000000 ? `${(s.maxHp / 1000000).toFixed(2)}M` : `${(s.maxHp / 1000).toFixed(0)}k`;
+      hpVal.textContent = `${hpK}/${maxHpK} Tokens`;
       const hpPct = Math.min(100, (s.hp / s.maxHp) * 100);
       hpFill.style.width = `${hpPct}%`;
       if (hpPct <= 25) {

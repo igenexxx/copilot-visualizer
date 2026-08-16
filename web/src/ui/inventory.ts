@@ -45,11 +45,146 @@ export interface SessionContextData {
   updatedAt: number;
 }
 
+export interface MechanicLoreItem {
+  id: string;
+  name: string;
+  title: string;
+  icon: string;
+  type: string;
+  category: string;
+  description: string;
+  isBudgetController?: boolean;
+}
+
+export const MECHANICS_ENTRIES: MechanicLoreItem[] = [
+  {
+    id: 'mech-health',
+    name: 'Health (HP) & Daily Token Budget',
+    title: 'Health (HP) & Daily Token Budget',
+    icon: '💚',
+    type: 'vitality',
+    category: 'core',
+    description: `### 💚 Health (HP) & Daily Token Quota
+
+**Health (HP)** represents the agent's **Daily Token Budget & Operational Stability**.
+
+#### 📐 How It Works:
+- **Maximum HP (Max HP):** Represents your daily token allocation (e.g. 250k, 500k, 1,000,000, 2,000,000 tokens).
+- **Token Consumption:** As the agent reads files, generates reasoning tokens, and executes MCP tools across sessions today, HP proportionally declines.
+- **Thermal Damage Penalty:** If workshop stations overheat (>= 70% heat), the agent takes direct HP damage (-3 HP/s periodic, -8 HP/action) due to mechanical wear and token waste.
+- **Pass Test Recovery:** Passing unit tests and solving build issues restores +5 HP stability.
+
+#### ⚙️ Configure Daily Token Budget:
+Adjust your daily budget below to calibrate your agent's health bar.`,
+    isBudgetController: true,
+  },
+  {
+    id: 'mech-mana',
+    name: 'Mana (MP) & Context Window Reservoir',
+    title: 'Mana (MP) & Context Window Reservoir',
+    icon: '🔷',
+    type: 'energy',
+    category: 'core',
+    description: `### 🔷 Mana (MP) & Context Window Dynamics
+
+**Mana (MP)** represents the current session's **Active Context Window Capacity & Operational Energy**.
+
+#### 📐 Spell Costs & Token Depletion:
+- **Code Forge (\`file.write\` / \`edit\`):** 850 MP
+- **Search Radar (\`file.read\` / \`grep\`):** 350 MP
+- **Test Crucible (\`run_command\` / \`bash\`):** 1,200 MP
+- **Safety Barrier (\`checkpoint.request\`):** 500 MP
+- **MCP Shard Bridge (\`mcp.call\`):** 1,500 MP
+
+#### 💡 Visual Indicators:
+- Every action triggers floating MP cost numbers (e.g. \`-850 MP\`) that float above the character's head in the workshop.
+- Context Silo gauge on the right viewport tracks current context saturation percentage.`,
+  },
+  {
+    id: 'mech-xp',
+    name: 'Leveling, XP & Agentic Titles',
+    title: 'Leveling, XP & Agentic Titles',
+    icon: '⭐',
+    type: 'progression',
+    category: 'core',
+    description: `### ⭐ Progression, XP & Agentic Titles
+
+As the AI agent solves issues, runs commands, and modifies codebase artifacts, it earns **Experience Points (XP)**.
+
+#### 🎖️ Mastery Titles:
+- **Level 1:** Junior Code Crafter (0 XP)
+- **Level 2:** Apprentice Automator (300 XP)
+- **Level 3:** Journeyman Refactorer (750 XP)
+- **Level 4:** Senior Systems Engineer (1,500 XP)
+- **Level 5:** Staff Protocol Architect (2,800 XP)
+- **Level 6:** Principal Tool Virtuoso (4,800 XP)
+- **Level 7:** Autonomous Swarm Master (7,800 XP)
+- **Level 8:** Ascended AI Grandmaster (12,000 XP)
+- **Level 9+:** Omnipotent Agentic Deity (20,000+ XP)
+
+Level-ups trigger golden fireworks, level up soundscapes, and boost stability reserves!`,
+  },
+  {
+    id: 'mech-thermal',
+    name: 'Machine Heat, Overheating & Wear',
+    title: 'Machine Heat, Overheating & Wear',
+    icon: '🔥',
+    type: 'environment',
+    category: 'core',
+    description: `### 🔥 Machine Heat, Overheating & Thermal Damage
+
+Workstations in the factory simulate **Mechanical Friction & Compute Load**.
+
+#### 🌡️ Heat Dynamics:
+- **CNC Lathe & Laser:** +24% heat per code generation.
+- **Test Furnace:** +28% heat per test suite execution.
+- **Search Radar:** +18% heat per deep repo scan.
+- **Cooldown Rate:** Natural cooldown decays at 2.4% per second.
+
+#### 💥 Overheat Threshold (>= 70% Heat):
+- Machine begins venting hot red steam and emitting warning sparks.
+- Characters working on overheated machines take -8 HP immediate thermal stress.
+- Unattended overheated machines trigger -3 HP/sec periodic environmental damage across the shop floor until cooled!`,
+  },
+  {
+    id: 'mech-velocity',
+    name: 'Dynamic Worker Velocity & Task Queues',
+    title: 'Dynamic Worker Velocity & Task Queues',
+    icon: '🏃',
+    type: 'movement',
+    category: 'core',
+    description: `### 🏃 Dynamic Worker Velocity & Waypoint Queuing
+
+Workers in the factory do not instantly teleport; they navigate between stations with realistic, adaptive physics.
+
+#### 🏎️ Adaptive Speed Multipliers:
+- **Single Destination (0 in Queue):** 1.0x (Relaxed walk ~0.06 tiles/frame).
+- **1 Task in Queue:** 1.4x (Brisk focused walk).
+- **2 Tasks in Queue:** 1.9x (Energetic jog).
+- **3+ Tasks Backlogged:** 2.6x (Sprint rush with speed dust particles and \`⚡ +N\` queue badge).`,
+  },
+  {
+    id: 'mech-security',
+    name: 'Security Gate, Approvals & Checkpoints',
+    title: 'Security Gate, Approvals & Checkpoints',
+    icon: '🛡️',
+    type: 'governance',
+    category: 'core',
+    description: `### 🛡️ Security Gate & CLI Approvals
+
+When an agent requests execution of risky shell commands or destructive file operations:
+- Event is routed to the **Security Gate** (1F checkpoint).
+- Execution pauses in CLI awaiting Human-in-the-loop confirmation.
+- Live stream displays a highlighted **⚠️ PERMISSION REQUIRED** card with the exact command and target parameters.
+- Terminal snackbar displays the exact command awaiting approval.`,
+  },
+];
+
 export class InventoryModal {
   private container: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
   private isOpen = false;
-  private activeTab: 'skills' | 'mcp' | 'rules' | 'commands' = 'skills';
+  private activeTab: 'skills' | 'mcp' | 'rules' | 'commands' | 'mechanics' = 'skills';
   private currentContext: SessionContextData | null = null;
   private selectedItem: any = null;
   private bannerTimer: any = null;
@@ -100,6 +235,10 @@ export class InventoryModal {
             <button class="inv-tab-btn" data-tab="commands">
               <span>⚡</span>
               <span>Slash Runes (<span id="inv-count-commands">0</span>)</span>
+            </button>
+            <button class="inv-tab-btn" data-tab="mechanics">
+              <span>📖</span>
+              <span>Arcane Codex (6)</span>
             </button>
           </div>
 
@@ -258,16 +397,19 @@ export class InventoryModal {
     let items: any[] = [];
     if (this.activeTab === 'skills') {
       if (titleEl) titleEl.textContent = 'AGENT SKILLS & SPECIALIZATIONS';
-      items = this.currentContext.skills || [];
+      items = this.currentContext?.skills || [];
     } else if (this.activeTab === 'mcp') {
       if (titleEl) titleEl.textContent = 'MCP SHARDS & PROTOCOL BRIDGES';
-      items = this.currentContext.mcpServers || [];
+      items = this.currentContext?.mcpServers || [];
     } else if (this.activeTab === 'rules') {
       if (titleEl) titleEl.textContent = 'SCROLLS OF GOVERNANCE & MEMORY RULES';
-      items = this.currentContext.rules || [];
+      items = this.currentContext?.rules || [];
     } else if (this.activeTab === 'commands') {
       if (titleEl) titleEl.textContent = 'RUNES OF COMMAND & SLASH MACROS';
-      items = this.currentContext.slashCommands || [];
+      items = this.currentContext?.slashCommands || [];
+    } else if (this.activeTab === 'mechanics') {
+      if (titleEl) titleEl.textContent = 'ARCANE CODEX OF FACTORY & RPG MECHANICS';
+      items = MECHANICS_ENTRIES;
     }
 
     if (items.length === 0) {
@@ -362,6 +504,28 @@ export class InventoryModal {
       `;
     }
 
+    let budgetControlsHtml = '';
+    if (item.isBudgetController) {
+      const currentBudget = (window as any).visualizerApp?.rpg?.dailyTokenBudget || 1000000;
+      budgetControlsHtml = `
+        <div class="inv-detail-section">
+          <div class="inv-detail-section-title">⚙️ CONFIGURE DAILY TOKEN BUDGET</div>
+          <div class="daily-budget-controls">
+            <button class="budget-preset-btn ${currentBudget === 250000 ? 'active' : ''}" data-budget="250000">250k</button>
+            <button class="budget-preset-btn ${currentBudget === 500000 ? 'active' : ''}" data-budget="500000">500k</button>
+            <button class="budget-preset-btn ${currentBudget === 1000000 ? 'active' : ''}" data-budget="1000000">1.0M</button>
+            <button class="budget-preset-btn ${currentBudget === 2000000 ? 'active' : ''}" data-budget="2000000">2.0M</button>
+            <button class="budget-preset-btn ${currentBudget === 5000000 ? 'active' : ''}" data-budget="5000000">5.0M</button>
+          </div>
+          <div class="custom-budget-row">
+            <input type="number" id="input-custom-budget" class="custom-budget-input" placeholder="Custom token limit..." value="${currentBudget}" min="10000" step="50000" />
+            <button id="btn-apply-custom-budget" class="custom-budget-apply-btn">Apply Limit</button>
+          </div>
+          <div id="budget-saved-indicator" style="display: none; font-size: 9.5px; color: #34d399; font-weight: 700; font-family: var(--font-mono); margin-top: 4px;">✓ Daily Token Budget Saved & Applied Live!</div>
+        </div>
+      `;
+    }
+
     card.innerHTML = `
       <div class="inv-card-header">
         <div class="inv-card-icon-frame ${isActive ? 'active' : ''}">
@@ -382,6 +546,7 @@ export class InventoryModal {
         <div class="inv-card-lore">${escapeHtml(desc)}</div>
       </div>
 
+      ${budgetControlsHtml}
       ${toolsListHtml}
 
       <div class="inv-detail-section">
@@ -401,6 +566,40 @@ export class InventoryModal {
         ` : ''}
       </div>
     `;
+
+    if (item.isBudgetController) {
+      card.querySelectorAll('.budget-preset-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const val = parseInt(btn.getAttribute('data-budget') || '1000000', 10);
+          (window as any).visualizerApp?.rpg?.setDailyTokenBudget(val);
+          card.querySelectorAll('.budget-preset-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          const inputEl = document.getElementById('input-custom-budget') as HTMLInputElement;
+          if (inputEl) inputEl.value = String(val);
+          const ind = document.getElementById('budget-saved-indicator');
+          if (ind) {
+            ind.style.display = 'block';
+            setTimeout(() => { if (ind) ind.style.display = 'none'; }, 3000);
+          }
+        });
+      });
+
+      document.getElementById('btn-apply-custom-budget')?.addEventListener('click', () => {
+        const inputEl = document.getElementById('input-custom-budget') as HTMLInputElement;
+        if (inputEl) {
+          const val = parseInt(inputEl.value, 10);
+          if (!isNaN(val) && val > 0) {
+            (window as any).visualizerApp?.rpg?.setDailyTokenBudget(val);
+            card.querySelectorAll('.budget-preset-btn').forEach((b) => b.classList.remove('active'));
+            const ind = document.getElementById('budget-saved-indicator');
+            if (ind) {
+              ind.style.display = 'block';
+              setTimeout(() => { if (ind) ind.style.display = 'none'; }, 3000);
+            }
+          }
+        }
+      });
+    }
   }
 }
 

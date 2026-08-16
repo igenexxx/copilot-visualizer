@@ -70,7 +70,7 @@ describe('InventoryModal Component', () => {
     expect(overlay?.style.display).toBe('none');
 
     const tabs = document.querySelectorAll('.inv-tab-btn');
-    expect(tabs.length).toBe(4);
+    expect(tabs.length).toBe(5); // skills, mcp, rules, commands, mechanics
   });
 
   it('should populate context data and update counts', () => {
