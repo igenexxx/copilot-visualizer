@@ -322,4 +322,40 @@ func TestServer_CopilotUsage(t *testing.T) {
 	}
 }
 
+func TestServer_EnrichmentEndpoints(t *testing.T) {
+	srv, _, _, _, _, _ := setupTestServer(t)
+
+	// 1. Missing session ID
+	req := httptest.NewRequest(http.MethodGet, "/api/enrichment/usage", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request on empty session ID, got %d", rec.Code)
+	}
+
+	// 2. Disallowed method
+	postReq := httptest.NewRequest(http.MethodPost, "/api/enrichment/usage?id=s1", nil)
+	postRec := httptest.NewRecorder()
+	srv.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed, got %d", postRec.Code)
+	}
+
+	// 3. Valid GET enrichment usage
+	validReq := httptest.NewRequest(http.MethodGet, "/api/enrichment/usage?id=sess-enrich-1", nil)
+	validRec := httptest.NewRecorder()
+	srv.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on /api/enrichment/usage, got %d", validRec.Code)
+	}
+
+	// 4. GET /api/enrichment/all
+	allReq := httptest.NewRequest(http.MethodGet, "/api/enrichment/all", nil)
+	allRec := httptest.NewRecorder()
+	srv.ServeHTTP(allRec, allReq)
+	if allRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on /api/enrichment/all, got %d", allRec.Code)
+	}
+}
+
 

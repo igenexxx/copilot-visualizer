@@ -9,6 +9,7 @@ import (
 
 	"github.com/zhenya/copilot-visualizer/pkg/autodiscover"
 	"github.com/zhenya/copilot-visualizer/pkg/copilotstore"
+	"github.com/zhenya/copilot-visualizer/pkg/enricher"
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
@@ -23,6 +24,7 @@ type Server struct {
 	hub          *hub.Hub
 	simulator    *simulator.Simulator
 	engine       *autodiscover.Engine
+	enricher     *enricher.Engine
 	intervention *intervention.Manager
 	recorder     *recorder.Recorder
 	sessionStore *sessionstore.Store
@@ -45,6 +47,7 @@ func NewServer(
 		hub:          h,
 		simulator:    sim,
 		engine:       engine,
+		enricher:     enricher.NewEngine(h),
 		intervention: interv,
 		recorder:     rec,
 		sessionStore: store,
@@ -65,6 +68,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/sessions/attach", s.handleSessionAttach)
 	s.mux.HandleFunc("/api/sessions/state", s.handleSessionState)
 	s.mux.HandleFunc("/api/copilot/usage", s.handleCopilotUsage)
+	s.mux.HandleFunc("/api/enrichment/usage", s.handleEnrichmentUsage)
+	s.mux.HandleFunc("/api/enrichment/all", s.handleEnrichmentAll)
 	s.mux.HandleFunc("/api/simulator/start", s.handleSimStart)
 	s.mux.HandleFunc("/api/simulator/stop", s.handleSimStop)
 	s.mux.HandleFunc("/api/simulator/speed", s.handleSimSpeed)
@@ -528,6 +533,60 @@ func (s *Server) handleCopilotUsage(w http.ResponseWriter, r *http.Request) {
 		"metadata":  meta,
 	}
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleEnrichmentUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID := r.URL.Query().Get("id")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("sessionId")
+	}
+	if sessionID == "" && s.engine != nil {
+		if active := s.engine.GetActiveSession(); active != nil {
+			sessionID = active.ID
+		}
+	}
+
+	if sessionID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if s.enricher == nil {
+		http.Error(w, "Enricher not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	s.enricher.RefreshSession(sessionID)
+	usage := s.enricher.GetUsage(sessionID)
+	meta := s.enricher.GetMetadata(sessionID)
+
+	resp := map[string]any{
+		"sessionId": sessionID,
+		"usage":     usage,
+		"metadata":  meta,
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleEnrichmentAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if s.enricher == nil {
+		_ = json.NewEncoder(w).Encode([]any{})
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(s.enricher.GetAllUsage())
 }
 
 
