@@ -7,6 +7,7 @@ includes:
 
 vars:
   BINARY_NAME: copilot-visualizer
+  DESKTOP_BINARY_NAME: copilot-visualizer-desktop
   PORT: 9876
 
 tasks:
@@ -21,8 +22,12 @@ tasks:
       - go mod download
       - npm --prefix web install
 
+  # ─────────────────────────────────────────────────────────────────
+  # [PRIMARY] STANDALONE WEB SERVER BINARY (Server + Embedded Web UI)
+  # ─────────────────────────────────────────────────────────────────
+
   build:web:
-    desc: Build frontend assets with Vite
+    desc: '[PRIMARY] Build frontend web assets with Vite'
     sources:
       - web/src/**/*
       - web/index.html
@@ -34,7 +39,7 @@ tasks:
       - npm --prefix web run build
 
   build:go:
-    desc: Compile single standalone Go binary with embedded UI
+    desc: '[PRIMARY] Compile standalone Go server binary with embedded Web UI'
     deps: [build:web]
     sources:
       - '**/*.go'
@@ -43,11 +48,38 @@ tasks:
       - '{{.BINARY_NAME}}'
     cmds:
       - go build -ldflags="-s -w" -o {{.BINARY_NAME}} ./cmd/server
-      - 'echo "✓ Built standalone binary: ./{{.BINARY_NAME}}"'
+      - 'echo "✓ [PRIMARY] Built standalone server binary: ./{{.BINARY_NAME}}"'
+
+  build:server:
+    desc: '[PRIMARY] Build complete standalone Server + Web binary (alias for build)'
+    deps: [build:go]
 
   build:
-    desc: Build entire project (frontend + embedded Go binary)
+    desc: '[PRIMARY] Build entire project (Server + Embedded Web UI, single binary)'
     deps: [build:go]
+
+  # ─────────────────────────────────────────────────────────────────
+  # [SECONDARY] DESKTOP GUI APPLICATION (Wails + Native WebView)
+  # ─────────────────────────────────────────────────────────────────
+
+  build:desktop:
+    desc: '[SECONDARY] Build Wails desktop windowed app (requires Wails CLI + WebKit/WebView)'
+    deps: [build:web]
+    cmds:
+      - wails build -tags webkit2_41 -platform linux/amd64 -o {{.DESKTOP_BINARY_NAME}}
+      - 'echo "✓ [SECONDARY] Built desktop binary: ./build/bin/{{.DESKTOP_BINARY_NAME}}"'
+
+  build:wails:
+    desc: '[SECONDARY] Alias for build:desktop'
+    deps: [build:desktop]
+
+  build:all:
+    desc: 'Build both [PRIMARY] Server+Web binary and [SECONDARY] Wails desktop app'
+    deps: [build, build:desktop]
+
+  # ─────────────────────────────────────────────────────────────────
+  # TESTING & VERIFICATION
+  # ─────────────────────────────────────────────────────────────────
 
   test:web:
     desc: Run frontend unit test suite with Vitest
@@ -70,24 +102,34 @@ tasks:
       - go tool cover -html=coverage.out -o coverage.html
       - 'echo "✓ Coverage report generated at coverage.html"'
 
+  # ─────────────────────────────────────────────────────────────────
+  # DEVELOPMENT SERVERS
+  # ─────────────────────────────────────────────────────────────────
+
   dev:web:
-    desc: Start Vite frontend development server
+    desc: Start Vite frontend development server (http://localhost:5173)
     cmds:
       - npm --prefix web run dev
 
   dev:server:
-    desc: Run backend server in dev mode with live simulation
+    desc: Run backend server in dev mode with live simulation (http://localhost:9876)
     cmds:
       - go run ./cmd/server -port={{.PORT}} -demo=true
 
   run:
-    desc: Run the built standalone visualizer binary
+    desc: '[PRIMARY] Run the built standalone Server+Web visualizer binary'
     deps: [build]
     cmds:
       - ./{{.BINARY_NAME}} -port={{.PORT}}
 
+  run:desktop:
+    desc: '[SECONDARY] Run the built Wails desktop windowed visualizer'
+    deps: [build:desktop]
+    cmds:
+      - ./build/bin/{{.DESKTOP_BINARY_NAME}}
+
   clean:
     desc: Remove build artifacts and temporary files
     cmds:
-      - rm -rf {{.BINARY_NAME}} bin/ coverage.out coverage.html web/dist/
+      - rm -rf {{.BINARY_NAME}} build/bin/ dist/ coverage.out coverage.html web/dist/
       - 'echo "✓ Cleaned build artifacts"'

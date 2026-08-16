@@ -16,7 +16,7 @@ env:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
+    name: '[PRIMARY] Test & Build Server+Web (${{ matrix.os }})'
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

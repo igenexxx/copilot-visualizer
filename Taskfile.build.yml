@@ -59,11 +59,12 @@ tasks:
       - echo "Version {{.APP_VERSION}} built at {{.BUILD_TIME}}"
 
 # ─────────────────────────────────────────────────────────────────
-#  WEB SERVER BINARY (headless, no GUI — via cmd/server)
+#  [PRIMARY] STANDALONE WEB SERVER BINARIES (Server + Embedded Web UI)
+#  Headless, CGO-free, single self-contained binary across all OS/arch
 # ─────────────────────────────────────────────────────────────────
 
   server:linux-amd64:
-    desc: Build web-server binary → Linux x86_64
+    desc: '[PRIMARY] Build web-server binary → Linux x86_64'
     deps: [prepare, ensure-out]
     cmds:
       - |
@@ -74,7 +75,7 @@ tasks:
       - echo "✓ server-linux-amd64"
 
   server:linux-arm64:
-    desc: Build web-server binary → Linux ARM64 (Raspberry Pi / AWS Graviton)
+    desc: '[PRIMARY] Build web-server binary → Linux ARM64 (Raspberry Pi / AWS Graviton)'
     deps: [prepare, ensure-out]
     cmds:
       - |
@@ -85,7 +86,7 @@ tasks:
       - echo "✓ server-linux-arm64"
 
   server:windows-amd64:
-    desc: Build web-server binary → Windows x86_64 (.exe)
+    desc: '[PRIMARY] Build web-server binary → Windows x86_64 (.exe)'
     deps: [prepare, ensure-out]
     cmds:
       - |
@@ -96,7 +97,7 @@ tasks:
       - echo "✓ server-windows-amd64.exe"
 
   server:darwin-amd64:
-    desc: Build web-server binary → macOS Intel x86_64
+    desc: '[PRIMARY] Build web-server binary → macOS Intel x86_64'
     deps: [prepare, ensure-out]
     cmds:
       - |
@@ -107,7 +108,7 @@ tasks:
       - echo "✓ server-darwin-amd64"
 
   server:darwin-arm64:
-    desc: Build web-server binary → macOS Apple Silicon (M1/M2/M3)
+    desc: '[PRIMARY] Build web-server binary → macOS Apple Silicon (M1/M2/M3)'
     deps: [prepare, ensure-out]
     cmds:
       - |
@@ -118,7 +119,7 @@ tasks:
       - echo "✓ server-darwin-arm64"
 
   server:all:
-    desc: Build all headless server binaries for all platforms
+    desc: '[PRIMARY] Build all standalone server binaries for all platforms'
     deps:
       - server:linux-amd64
       - server:linux-arm64
@@ -126,10 +127,10 @@ tasks:
       - server:darwin-amd64
       - server:darwin-arm64
     cmds:
-      - echo "✓ All server binaries in {{.OUT_DIR}}/"
+      - echo "✓ All primary server binaries in {{.OUT_DIR}}/"
 
 # ─────────────────────────────────────────────────────────────────
-#  DESKTOP GUI (Wails — requires CGO + native WebView)
+#  [SECONDARY] DESKTOP GUI (Wails — requires CGO + native WebView)
 #  Cross-compilation note: Wails requires native host SDK per platform.
 #  Linux→Linux: works with CGO + webkit2gtk
 #  macOS→macOS: works with CGO + WebKit (Xcode SDK)
@@ -138,7 +139,7 @@ tasks:
 # ─────────────────────────────────────────────────────────────────
 
   desktop:linux:
-    desc: Build Wails desktop app → Linux (current host, requires libwebkit2gtk-4.1-dev)
+    desc: '[SECONDARY] Build Wails desktop app → Linux (requires libwebkit2gtk-4.1-dev)'
     deps: [ensure-out]
     cmds:
       - |

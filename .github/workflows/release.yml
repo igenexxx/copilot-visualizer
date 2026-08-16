@@ -94,9 +94,9 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Releasing as ${TAG}"
 
-  # ── 3. SERVER BINARIES (CGO-free, all platforms from one runner) ─
+  # ── 3. [PRIMARY] SERVER BINARIES (CGO-free, all platforms from one runner) ─
   build-servers:
-    name: Server binaries (all platforms)
+    name: '[PRIMARY] Server (${{ matrix.goos }}-${{ matrix.goarch }})'
     runs-on: ubuntu-latest
     needs: [test, version]
     strategy:
@@ -172,9 +172,9 @@ jobs:
           path: dist/copilot-visualizer-server-${{ matrix.goos }}-${{ matrix.goarch }}.*
           retention-days: 1
 
-  # ── 4. DESKTOP — LINUX ───────────────────────────────────────────
+  # ── 4. [SECONDARY] DESKTOP — LINUX ──────────────────────────────
   build-desktop-linux:
-    name: Desktop (Linux amd64)
+    name: '[SECONDARY] Desktop (Linux amd64)'
     runs-on: ubuntu-latest
     needs: [test, version]
     steps:
@@ -222,9 +222,9 @@ jobs:
           path: dist/copilot-visualizer-desktop-linux-amd64.*
           retention-days: 1
 
-  # ── 5. DESKTOP — macOS ───────────────────────────────────────────
+  # ── 5. [SECONDARY] DESKTOP — macOS ──────────────────────────────
   build-desktop-darwin:
-    name: Desktop (macOS ${{ matrix.goarch }})
+    name: '[SECONDARY] Desktop (macOS ${{ matrix.goarch }})'
     runs-on: macos-latest
     needs: [test, version]
     strategy:
@@ -276,7 +276,7 @@ jobs:
 
   # macOS universal fat binary from amd64 + arm64
   build-desktop-darwin-universal:
-    name: Desktop (macOS universal)
+    name: '[SECONDARY] Desktop (macOS universal)'
     runs-on: macos-latest
     needs: [build-desktop-darwin]
     steps:
@@ -316,9 +316,9 @@ jobs:
           path: dist/copilot-visualizer-desktop-darwin-universal.*
           retention-days: 1
 
-  # ── 6. DESKTOP — WINDOWS ─────────────────────────────────────────
+  # ── 6. [SECONDARY] DESKTOP — WINDOWS ────────────────────────────
   build-desktop-windows:
-    name: Desktop (Windows amd64)
+    name: '[SECONDARY] Desktop (Windows amd64)'
     runs-on: windows-latest
     needs: [test, version]
     steps:
@@ -405,45 +405,49 @@ jobs:
 
           ### 📦 Downloads
 
-          #### 🖥️ Desktop App (Wails — native window, no browser required)
-          | Platform | Architecture | File |
-          |---|---|---|
-          | Linux | x86_64 | \`copilot-visualizer-desktop-linux-amd64.tar.gz\` |
-          | macOS | Apple Silicon (M1/M2/M3) | \`copilot-visualizer-desktop-darwin-arm64.*\` |
-          | macOS | Intel | \`copilot-visualizer-desktop-darwin-amd64.*\` |
-          | macOS | Universal (fat binary) | \`copilot-visualizer-desktop-darwin-universal.tar.gz\` |
-          | Windows | x86_64 | \`copilot-visualizer-desktop-windows-amd64.exe\` |
-          | Windows | NSIS Installer | \`copilot-visualizer-desktop-windows-amd64-installer.exe\` |
+          #### 🌐 [PRIMARY] Standalone Web Server (CGO-free, embedded Web UI — single binary)
+          *Recommended for most users and servers. Open in browser at \`http://localhost:9876\`.*
 
-          #### 🌐 Headless Web Server (CGO-free, no GUI — browser at localhost:9876)
           | Platform | Architecture | File |
           |---|---|---|
           | Linux | x86_64 | \`copilot-visualizer-server-linux-amd64.tar.gz\` |
-          | Linux | ARM64 | \`copilot-visualizer-server-linux-arm64.tar.gz\` |
+          | Linux | ARM64 (Raspberry Pi / Graviton) | \`copilot-visualizer-server-linux-arm64.tar.gz\` |
+          | macOS | Apple Silicon (M1/M2/M3/M4) | \`copilot-visualizer-server-darwin-arm64.tar.gz\` |
           | macOS | Intel | \`copilot-visualizer-server-darwin-amd64.tar.gz\` |
-          | macOS | Apple Silicon | \`copilot-visualizer-server-darwin-arm64.tar.gz\` |
           | Windows | x86_64 | \`copilot-visualizer-server-windows-amd64.zip\` |
+
+          #### 🖥️ [SECONDARY] Desktop Windowed App (Wails GUI — native window, no browser needed)
+          *Requires WebKit / WebView2 runtime on host system.*
+
+          | Platform | Architecture | File |
+          |---|---|---|
+          | Linux | x86_64 | \`copilot-visualizer-desktop-linux-amd64.tar.gz\` |
+          | macOS | Universal (fat binary) | \`copilot-visualizer-desktop-darwin-universal.tar.gz\` |
+          | macOS | Apple Silicon (M1/M2/M3) | \`copilot-visualizer-desktop-darwin-arm64.*\` |
+          | macOS | Intel | \`copilot-visualizer-desktop-darwin-amd64.*\` |
+          | Windows | x86_64 Portable | \`copilot-visualizer-desktop-windows-amd64.exe\` |
+          | Windows | NSIS Installer | \`copilot-visualizer-desktop-windows-amd64-installer.exe\` |
 
           ---
 
           ### 🚀 Quick Start
 
-          **Desktop:**
+          **1. [PRIMARY] Standalone Web Server:**
+          \`\`\`bash
+          tar -xzf copilot-visualizer-server-linux-amd64.tar.gz
+          ./copilot-visualizer-server-linux-amd64 -port=9876
+          # Navigate to http://localhost:9876 in your browser
+          \`\`\`
+
+          **2. [SECONDARY] Desktop Windowed App:**
           \`\`\`bash
           # Linux
           tar -xzf copilot-visualizer-desktop-linux-amd64.tar.gz
-          ./copilot-visualizer-desktop-linux-amd64 --demo
+          ./copilot-visualizer-desktop-linux-amd64
 
           # macOS (universal)
           tar -xzf copilot-visualizer-desktop-darwin-universal.tar.gz
-          ./copilot-visualizer-desktop-darwin-universal --demo
-          \`\`\`
-
-          **Web Server:**
-          \`\`\`bash
-          tar -xzf copilot-visualizer-server-linux-amd64.tar.gz
-          ./copilot-visualizer-server-linux-amd64 -port=9876 -demo=true
-          # Open http://localhost:9876
+          ./copilot-visualizer-desktop-darwin-universal
           \`\`\`
 
           **Verify checksums:**
