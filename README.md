@@ -187,6 +187,32 @@ await window.go.main.App.ScanRepoTree("/path/to/project")
 
 ---
 
+## 💾 Data Storage & Replay Files
+
+Copilot Visualizer organizes persistent history and telemetry across two dedicated storage layers:
+
+### 1. Session Replay Tapes (`.tapes/`)
+- **Location:** `./.tapes/<tape-id>.json` (or configured directory via `-tapes-dir`)
+- **Modules:** [`pkg/recorder`](pkg/recorder/recorder.go) & [`pkg/simulator`](pkg/simulator/simulator.go)
+- **File Structure:**
+  - `events`: Array of discrete, strongly-typed agent lifecycle events with sub-millisecond timestamps.
+  - `durationMs`: Total duration of the recorded coding session.
+  - `fileDiffs`: Snapshots of patched files (`oldContent`, `newContent`, `addedLines`, `removedLines`).
+  - `metadata`: Session title, model identifier, and total event count.
+- **Purpose:** Full timeline replay in the Visualizer / Simulator at variable playback speeds (`0.5x`, `1x`, `2x`, `5x`, `10x`) for post-mortem debugging, demos, and regression analysis.
+
+### 2. Visualizer Session State Store (`~/.copilot-visualizer/sessions/`)
+- **Location:** `~/.copilot-visualizer/sessions/<session-id>/state.json`
+- **Module:** [`pkg/sessionstore`](pkg/sessionstore/store.go)
+- **File Structure:**
+  - `rpg`: Hero progression snapshot (Engineer Level, EXP, HP, MP Mana, Unlocked Specializations).
+  - `tokenomics`: Exact financial telemetry (Total Cost USD, Input/Output/Cache token counts, and per-model consumption).
+  - `workstations`: Machinery health metrics (Wear %, Temperature °C, Total Operations per station).
+  - `metrics`: Processed cognitive steps, loop detection flags, and blast radius state.
+- **Purpose:** Seamless state persistence across application and server restarts, updated asynchronously with zero blocking overhead.
+
+---
+
 ## 🧪 Testing
 
 ```bash
