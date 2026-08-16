@@ -253,49 +253,75 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 			summary := fmt.Sprintf("Invoking %s", toolName)
 
 			lowerName := strings.ToLower(toolName)
+			var filePath string
+			var targetFile string
+			var cmdStr string
+
 			switch {
-			case lowerName == "bash" || lowerName == "shell" || lowerName == "exec":
+			case lowerName == "bash" || lowerName == "shell" || lowerName == "exec" || lowerName == "terminal":
 				role = events.RoleTester
 				station = events.StationTestFurnace
 				evtType = events.TypeCommandRun
 				if cmd, ok := args["command"].(string); ok && cmd != "" {
+					cmdStr = cmd
 					title = fmt.Sprintf("Exec: %s", cmd)
 					summary = fmt.Sprintf("Running shell command: %s", cmd)
 				}
-			case lowerName == "edit" || lowerName == "write_file" || lowerName == "create_file" || lowerName == "patch":
+
+			case lowerName == "edit" || lowerName == "write_file" || lowerName == "create_file" || lowerName == "patch" || lowerName == "create" || lowerName == "write":
 				role = events.RoleCrafter
 				station = events.StationCNCLathe
 				evtType = events.TypeFileWrite
-				targetFile, _ := args["path"].(string)
+				targetFile, _ = args["path"].(string)
 				if targetFile == "" {
 					targetFile, _ = args["filePath"].(string)
+				}
+				if targetFile == "" {
+					targetFile, _ = args["file"].(string)
 				}
 				if targetFile != "" {
 					title = fmt.Sprintf("Forging: %s", filepath.Base(targetFile))
 					summary = fmt.Sprintf("Modifying code in %s", targetFile)
 				}
-			case lowerName == "view" || lowerName == "read_file" || lowerName == "glob" || lowerName == "file_search":
+
+			case lowerName == "view" || lowerName == "read_file" || lowerName == "read" || lowerName == "glob" || lowerName == "file_search" || lowerName == "cat":
 				role = events.RoleInspector
 				station = events.StationRepoShelf
 				evtType = events.TypeFileRead
-				path, _ := args["path"].(string)
-				if path == "" {
-					path, _ = args["paths"].(string)
+				filePath, _ = args["path"].(string)
+				if filePath == "" {
+					filePath, _ = args["filePath"].(string)
 				}
+				if filePath == "" {
+					filePath, _ = args["paths"].(string)
+				}
+				if filePath == "" {
+					filePath, _ = args["file"].(string)
+				}
+
 				if pattern, ok := args["pattern"].(string); ok && pattern != "" {
 					title = fmt.Sprintf("Glob: %s", pattern)
 					summary = fmt.Sprintf("Scanning files matching %s", pattern)
-				} else if path != "" {
-					title = fmt.Sprintf("Reading: %s", filepath.Base(path))
-					summary = fmt.Sprintf("Inspecting file: %s", path)
+				} else if filePath != "" {
+					title = fmt.Sprintf("Reading: %s", filepath.Base(filePath))
+					summary = fmt.Sprintf("Inspecting file: %s", filePath)
 				}
-			case lowerName == "grep" || lowerName == "search":
+
+			case lowerName == "rg" || lowerName == "grep" || lowerName == "search" || lowerName == "find_files":
 				role = events.RoleInspector
 				station = events.StationSearchRadar
-				evtType = events.TypeToolCall
-				if q, ok := args["query"].(string); ok {
-					title = fmt.Sprintf("Search: %q", q)
-					summary = fmt.Sprintf("Searching for pattern %q", q)
+				evtType = events.TypeFileRead
+				filePath, _ = args["paths"].(string)
+				if filePath == "" {
+					filePath, _ = args["path"].(string)
+				}
+				pattern, _ := args["pattern"].(string)
+				if pattern != "" {
+					title = fmt.Sprintf("Ripgrep: %s", pattern)
+					summary = fmt.Sprintf("Searching pattern %q", pattern)
+				} else if filePath != "" {
+					title = fmt.Sprintf("Reading: %s", filepath.Base(filePath))
+					summary = fmt.Sprintf("Inspecting file: %s", filePath)
 				}
 			}
 
@@ -307,6 +333,21 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 				WithPayload("args", args).
 				WithPayload("detectedSource", "copilot_cli").
 				WithPayload("detectedModel", currentModel)
+
+			if filePath != "" {
+				evt.WithPayload("file", filePath).
+					WithPayload("path", filePath).
+					WithPayload("targetFile", filePath)
+			}
+			if targetFile != "" {
+				evt.WithPayload("file", targetFile).
+					WithPayload("path", targetFile).
+					WithPayload("targetFile", targetFile)
+			}
+			if cmdStr != "" {
+				evt.WithPayload("command", cmdStr)
+			}
+
 			res = append(res, evt)
 		}
 
@@ -333,9 +374,27 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 				}
 			}
 
-			evt := events.NewEvent(fmt.Sprintf("copilot-tool-done-%d", now), sessionID, events.TypeCommandOutput, "agent-copilot", preview).
-				WithRole(events.RoleTester).
-				WithStation(events.StationTestFurnace).
+			compRole := events.RoleTester
+			compStation := events.StationTestFurnace
+			compType := events.TypeCommandOutput
+
+			// Check tool telemetry for file view operations
+			if tt, ok := dataMap["toolTelemetry"].(map[string]any); ok {
+				if props, ok := tt["properties"].(map[string]any); ok {
+					cmd, _ := props["command"].(string)
+					viewType, _ := props["viewType"].(string)
+					if cmd == "view" || viewType == "file" {
+						compRole = events.RoleInspector
+						compStation = events.StationRepoShelf
+						compType = events.TypeFileRead
+						preview = "File inspection complete"
+					}
+				}
+			}
+
+			evt := events.NewEvent(fmt.Sprintf("copilot-tool-done-%d", now), sessionID, compType, "agent-copilot", preview).
+				WithRole(compRole).
+				WithStation(compStation).
 				WithSummary(content).
 				WithPayload("success", success).
 				WithPayload("output", content).

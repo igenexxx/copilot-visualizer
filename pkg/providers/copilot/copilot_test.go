@@ -131,6 +131,22 @@ func TestCopilot_StructuredEvents(t *testing.T) {
 			expectedModel: "o3-mini",
 		},
 		{
+			name:          "tool.execution_start view file read",
+			line:          `{"type":"tool.execution_start","data":{"toolName":"view","arguments":{"path":"/src/main.ts"}}}`,
+			expectedCount: 1,
+			expectedType:  events.TypeFileRead,
+			expectedRole:  events.RoleInspector,
+			expectedModel: "o3-mini",
+		},
+		{
+			name:          "tool.execution_start rg ripgrep read",
+			line:          `{"type":"tool.execution_start","data":{"toolName":"rg","arguments":{"pattern":"CopilotClient","paths":"/src"}}}`,
+			expectedCount: 1,
+			expectedType:  events.TypeFileRead,
+			expectedRole:  events.RoleInspector,
+			expectedModel: "o3-mini",
+		},
+		{
 			name:          "tool.execution_start edit write",
 			line:          `{"type":"tool.execution_start","data":{"toolName":"edit","arguments":{"path":"/pkg/main.go"}}}`,
 			expectedCount: 1,
@@ -144,6 +160,14 @@ func TestCopilot_StructuredEvents(t *testing.T) {
 			expectedCount: 1,
 			expectedType:  events.TypeCommandOutput,
 			expectedRole:  events.RoleTester,
+			expectedModel: "o3-mini",
+		},
+		{
+			name:          "tool.execution_complete file view telemetry",
+			line:          `{"type":"tool.execution_complete","data":{"success":true,"result":{"content":"package main"},"toolTelemetry":{"properties":{"command":"view","viewType":"file"}}}}`,
+			expectedCount: 1,
+			expectedType:  events.TypeFileRead,
+			expectedRole:  events.RoleInspector,
 			expectedModel: "o3-mini",
 		},
 		{
