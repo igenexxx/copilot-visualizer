@@ -58,6 +58,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/history", s.handleHistory)
 	s.mux.HandleFunc("/api/events", s.handleIngestEvent)
 	s.mux.HandleFunc("/api/sessions", s.handleSessions)
+	s.mux.HandleFunc("/api/sessions/attach", s.handleSessionAttach)
 	s.mux.HandleFunc("/api/sessions/state", s.handleSessionState)
 	s.mux.HandleFunc("/api/simulator/start", s.handleSimStart)
 	s.mux.HandleFunc("/api/simulator/stop", s.handleSimStop)
@@ -134,13 +135,49 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(sessions)
 }
 
+func (s *Server) handleSessionAttach(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("id")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("sessionId")
+	}
+	if sessionID == "" {
+		http.Error(w, "Session ID parameter required", http.StatusBadRequest)
+		return
+	}
+
+	if s.engine != nil {
+		if err := s.engine.AttachSession(sessionID); err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"status": "attached", "sessionId": sessionID})
+}
+
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	sessionID := r.URL.Query().Get("sessionId")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("id")
+	}
+
 	w.Header().Set("Content-Type", "application/json")
+	if sessionID != "" && sessionID != "global" {
+		if s.engine != nil {
+			if fileEvents := s.engine.GetSessionEvents(sessionID); len(fileEvents) > 0 {
+				_ = json.NewEncoder(w).Encode(fileEvents)
+				return
+			}
+		}
+		_ = json.NewEncoder(w).Encode(s.hub.HistoryForSession(sessionID))
+		return
+	}
 	_ = json.NewEncoder(w).Encode(s.hub.History())
 }
 

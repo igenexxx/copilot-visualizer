@@ -1637,6 +1637,23 @@ canvas {
   color: var(--text-primary);
 }
 
+.mc-session-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mc-badge-context, .mc-badge-blast {
   font-size: 10px;
   padding: 2px 8px;
@@ -1692,10 +1709,123 @@ canvas {
 }
 
 /* Percentage proportions with responsive min-widths */
-.mc-card:nth-child(1) { flex: 1 1 24%; min-width: 290px; } /* Context Saturation */
-.mc-card:nth-child(2) { flex: 1.25 1 30%; min-width: 340px; } /* Goal Hierarchy & Checklist */
-.mc-card:nth-child(3) { flex: 0.95 1 21%; min-width: 260px; } /* Blast Radius & Heatmap */
-.mc-card:nth-child(4) { flex: 1.1 1 25%; min-width: 300px; } /* Tool Waterfall */
+.mc-card-session { flex: 1.1 1 23%; min-width: 270px; border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.95); }
+.mc-card:nth-child(2) { flex: 0.95 1 20%; min-width: 260px; } /* Context Saturation */
+.mc-card:nth-child(3) { flex: 1.15 1 24%; min-width: 300px; } /* Goal Hierarchy & Checklist */
+.mc-card:nth-child(4) { flex: 0.85 1 17%; min-width: 220px; } /* Blast Radius & Heatmap */
+.mc-card:nth-child(5) { flex: 0.95 1 20%; min-width: 250px; } /* Tool Waterfall */
+
+.mc-session-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.mc-session-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.provider-svg {
+  vertical-align: middle;
+  filter: drop-shadow(0 0 4px currentColor);
+}
+
+.mc-session-live-pill {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 9999px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.mc-session-live-pill.live {
+  background: rgba(16, 185, 129, 0.2);
+  color: var(--accent-emerald);
+  border: 1px solid var(--accent-emerald);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+.mc-session-live-pill.idle {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.mc-session-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.mc-session-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mc-field-label {
+  font-size: 8.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.mc-field-value-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 2px 6px;
+  gap: 4px;
+}
+
+.mc-field-val {
+  font-size: 10px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-val-mono {
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+}
+
+.mc-val-path {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.mc-btn-copy {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 1px 3px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.mc-btn-copy:hover {
+  opacity: 1;
+}
+
+.mc-session-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+  gap: 6px;
+}
 
 .mc-card-header {
   display: flex;

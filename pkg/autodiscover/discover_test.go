@@ -120,9 +120,61 @@ func TestEngine_AutoDiscoveryAndTailing(t *testing.T) {
 	}
 }
 
+func TestEngine_CopilotSessionDiscovery(t *testing.T) {
+	tmpDir := t.TempDir()
+	copilotDir := filepath.Join(tmpDir, ".copilot", "session-state", "sess-test-copilot-uuid")
+	if err := os.MkdirAll(copilotDir, 0o755); err != nil {
+		t.Fatalf("failed to create copilot dir: %v", err)
+	}
+
+	eventsPath := filepath.Join(copilotDir, "events.jsonl")
+	initialContent := `{"type":"session.start","data":{"sessionId":"sess-test-copilot-uuid","producer":"copilot-agent","model":"gpt-5.6-terra"}}` + "\n"
+	if err := os.WriteFile(eventsPath, []byte(initialContent), 0o600); err != nil {
+		t.Fatalf("failed to write events: %v", err)
+	}
+
+	mb := &mockBroadcaster{}
+	pattern := filepath.Join(tmpDir, ".copilot", "session-state", "*", "events.jsonl")
+	engine := autodiscover.NewEngineWithWatchPaths(mb, []string{pattern})
+	engine.SetPollDelay(20 * time.Millisecond)
+
+	sessions := engine.ScanSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session discovered, got %d", len(sessions))
+	}
+
+	if sessions[0].ID != "sess-test-copilot-uuid" {
+		t.Errorf("expected session ID sess-test-copilot-uuid, got %s", sessions[0].ID)
+	}
+	if sessions[0].Source != autodiscover.SessionSource("copilot_cli") {
+		t.Errorf("expected source copilot_cli, got %s", sessions[0].Source)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	engine.StartWatcher(ctx)
+	time.Sleep(50 * time.Millisecond)
+
+	f, err := os.OpenFile(eventsPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("failed to open file: %v", err)
+	}
+	_, _ = f.WriteString(`{"type":"tool.execution_start","data":{"toolName":"bash","arguments":{"command":"go test"}},"model":"gpt-5.6-terra"}` + "\n")
+	_ = f.Close()
+
+	time.Sleep(200 * time.Millisecond)
+	engine.StopWatcher()
+
+	if mb.Count() < 2 {
+		t.Errorf("expected at least 2 events broadcasted, got %d", mb.Count())
+	}
+}
+
 func TestEngine_DefaultConstructor(t *testing.T) {
 	mb := &mockBroadcaster{}
 	engine := autodiscover.NewEngine(mb, nil)
 	// Scanning real paths should not panic
 	_ = engine.ScanSessions()
 }
+

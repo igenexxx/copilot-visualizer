@@ -15,6 +15,7 @@ import { BlastRadiusEngine } from './analytics/blast_radius';
 import { WaterfallTimelineEngine } from './analytics/waterfall_timeline';
 import { CognitiveHUD } from './ui/cognitive_hud';
 import { MissionControlPanel } from './ui/mission_control';
+import { getProviderIcon, getProviderLabel, getProviderColor } from './ui/icons';
 
 class App {
   private client: VisualizerClient;
@@ -40,9 +41,12 @@ class App {
   private tapePlayInterval: number | null = null;
 
   private isInitialLoading = false;
+  private isSwitchingSession = false;
   private isSimRunning = true;
   private emergencyStopActive = false;
   private activeSessionId = 'global';
+  private activeSessionSource = 'antigravity';
+  private discoveredSessions: any[] = [];
   private seenEventIds = new Set<string>();
 
   // Metrics
@@ -125,9 +129,12 @@ class App {
             <span id="estop-label">E-STOP BRAKE</span>
           </button>
 
-          <div id="session-badge" class="session-badge" title="Auto-discovered session">
-            <span class="session-dot"></span>
-            <span id="session-text">SEARCHING SESSIONS...</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <div id="session-badge" class="session-badge" title="Auto-discovered session">
+              <span class="session-dot"></span>
+              <span id="session-text">SEARCHING SESSIONS...</span>
+            </div>
+            <select id="session-select-dropdown" class="speed-select" style="display: none; font-size: 11px; padding: 3px 6px; max-width: 180px;" title="Switch Discovered Session"></select>
           </div>
 
           <div class="status-pill">
@@ -621,6 +628,9 @@ class App {
       }
     });
     this.missionControl = new MissionControlPanel();
+    this.missionControl.onSelectSession = (sessionId, source) => {
+      this.switchSession(sessionId, source);
+    };
     this.missionControl.onToggle = (isExpanded) => {
       if (isExpanded) {
         this.recalculateMissionControlAnalytics();
@@ -981,30 +991,183 @@ class App {
   private async loadInitialHistory(): Promise<void> {
     this.isInitialLoading = true;
     try {
-      this.tokenomics.resetSession('gemini-3.7-flash');
       this.repoFolders = await this.client.fetchRepoTree();
 
-      const sessions = await this.client.fetchSessions();
-      if (sessions && sessions.length > 0) {
-        const active = sessions[0];
+      this.discoveredSessions = await this.client.fetchSessions();
+      this.populateSessionDropdown(this.discoveredSessions);
+
+      if (this.discoveredSessions && this.discoveredSessions.length > 0) {
+        const active = this.discoveredSessions[0];
         this.activeSessionId = active.id;
+        this.activeSessionSource = active.source;
         this.tokenomics.setSource(active.source);
-        const sessEl = document.getElementById('session-text');
-        if (sessEl) {
-          sessEl.textContent = `${active.source.toUpperCase()}: ${active.id.slice(0, 10)}`;
-        }
+        this.updateSessionBadgeUI(active.source);
+
+        const history = await this.client.fetchHistory(active.id);
+        history.forEach((evt) => this.handleIncomingEvent(evt, true));
         await this.restoreSessionState(active.id);
-      }
-
-      const history = await this.client.fetchHistory();
-      history.forEach((evt) => this.handleIncomingEvent(evt, true));
-
-      // Re-apply persisted session state after history replay to guarantee exact metrics and normal thermals
-      if (sessions && sessions.length > 0) {
-        await this.restoreSessionState(sessions[0].id);
+      } else {
+        this.updateSessionBadgeUI('antigravity');
+        const history = await this.client.fetchHistory();
+        history.forEach((evt) => this.handleIncomingEvent(evt, true));
       }
     } finally {
       this.isInitialLoading = false;
+      this.updateHUD();
+      this.updateRPGStatsUI();
+    }
+  }
+
+  private updateSessionBadgeUI(source?: string): void {
+    const src = source || this.activeSessionSource || this.tokenomics.activeSource || 'antigravity';
+    this.activeSessionSource = src;
+    const label = getProviderLabel(src);
+    const color = getProviderColor(src);
+    const iconSvg = getProviderIcon(src, 15);
+    const shortId = this.activeSessionId.length > 10 ? this.activeSessionId.slice(0, 8) + '…' : this.activeSessionId;
+
+    const badge = document.getElementById('session-badge');
+    if (badge) {
+      badge.innerHTML = `
+        <span class="session-dot"></span>
+        <span class="session-icon" style="display: flex; align-items: center;">${iconSvg}</span>
+        <span id="session-text" style="color: ${color}; font-weight: 700;">${label}: ${shortId}</span>
+      `;
+      badge.title = `Active AI Session: ${this.activeSessionId}\nProvider: ${label}`;
+    }
+
+    const sessObj = this.discoveredSessions.find((s) => s.id === this.activeSessionId);
+    const path = sessObj?.path || '';
+
+    this.missionControl?.updateSessionInfo(
+      {
+        id: this.activeSessionId,
+        source: src,
+        path: path,
+        active: sessObj ? sessObj.active : true,
+        model: this.tokenomics.activeModel?.name || this.tokenomics.activeModel?.id || 'gemini-3.7-flash',
+      },
+      this.discoveredSessions
+    );
+  }
+
+  private populateSessionDropdown(sessions: any[]): void {
+    const dropdown = document.getElementById('session-select-dropdown') as HTMLSelectElement;
+    if (!dropdown) return;
+
+    if (!sessions || sessions.length === 0) {
+      dropdown.style.display = 'none';
+      return;
+    }
+
+    dropdown.style.display = 'inline-block';
+    dropdown.innerHTML = '';
+
+    sessions.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      const shortId = s.id.length > 12 ? s.id.slice(0, 10) + '…' : s.id;
+      const activeTag = s.active ? '🟢' : '⚪';
+      opt.textContent = `${activeTag} ${s.source.toUpperCase()}: ${shortId}`;
+      if (s.id === this.activeSessionId) {
+        opt.selected = true;
+      }
+      dropdown.appendChild(opt);
+    });
+
+    dropdown.onchange = () => {
+      const selectedId = dropdown.value;
+      const found = sessions.find((x) => x.id === selectedId);
+      if (found) {
+        this.switchSession(found.id, found.source);
+      }
+    };
+  }
+
+  public async switchSession(sessionId: string, source?: string): Promise<void> {
+    if (!sessionId || sessionId === 'global' || (sessionId === this.activeSessionId && !this.isInitialLoading)) {
+      return;
+    }
+    if (this.isSwitchingSession) return;
+    this.isSwitchingSession = true;
+
+    try {
+      this.activeSessionId = sessionId;
+      const effectiveSource = source || (sessionId.includes('copilot') ? 'copilot_cli' : 'antigravity');
+      this.activeSessionSource = effectiveSource;
+      this.updateSessionBadgeUI(effectiveSource);
+
+      const dropdown = document.getElementById('session-select-dropdown') as HTMLSelectElement;
+      if (dropdown && dropdown.value !== sessionId) {
+        dropdown.value = sessionId;
+      }
+
+      // 1. Flush previous session
+      if (this.saveTimer) {
+        clearTimeout(this.saveTimer);
+        this.saveTimer = null;
+      }
+
+      // 2. Reset in-memory events and deduplication cache
+      this.allEvents = [];
+      this.seenEventIds.clear();
+      this.currentPlaybackIndex = -1;
+
+      // 3. Clear event feed UI
+      const feed = document.getElementById('feed-pane');
+      if (feed) feed.innerHTML = '';
+      const streamCount = document.getElementById('stream-count');
+      if (streamCount) streamCount.textContent = '0 events';
+
+      // 4. Reset stats counters
+      this.stats = {
+        totalEvents: 0,
+        filesWritten: 0,
+        mcpCalls: 0,
+        testsRun: 0,
+        activeAgents: 1,
+      };
+
+      // 5. Reset RPG Engine & Tokenomics Tracker
+      this.rpg = new RPGEngine();
+      this.setupRPG();
+      this.tokenomics = new TokenomicsTracker();
+      if (source) {
+        this.tokenomics.setSource(source);
+      }
+      this.setupTokenomics();
+
+      // 6. Reset Intelligence & Mission Control Analyzers
+      this.loopDetector.reset();
+      this.cognitiveClassifier.reset();
+      this.contextSaturation.reset();
+      this.goalTracker.reset();
+      this.blastRadius.reset();
+      this.waterfallTimeline.reset();
+
+      // 7. Reset Canvases
+      const wsCanvasEl = document.getElementById('workshop-canvas') as HTMLCanvasElement;
+      const grCanvasEl = document.getElementById('graph-canvas') as HTMLCanvasElement;
+      this.workshopCanvas.stop();
+      this.graphCanvas.stop();
+      this.workshopCanvas = new WorkshopCanvas(wsCanvasEl);
+      this.graphCanvas = new FlowGraphCanvas(grCanvasEl);
+      this.workshopCanvas.onFloorChanged = () => this.renderFloorSelector();
+      this.workshopCanvas.start();
+      this.graphCanvas.start();
+      this.renderFloorSelector();
+
+      // 8. Inform backend of session switch
+      await this.client.attachSession(sessionId);
+
+      // 9. Fetch and replay history relative to this session
+      const history = await this.client.fetchHistory(sessionId);
+      history.forEach((evt) => this.handleIncomingEvent(evt, true));
+
+      // 10. Restore persisted state for this session
+      await this.restoreSessionState(sessionId);
+    } finally {
+      this.isSwitchingSession = false;
       this.updateHUD();
       this.updateRPGStatsUI();
     }
@@ -1084,6 +1247,18 @@ class App {
   }
 
   private handleIncomingEvent(event: VisualizerEvent, isHistory: boolean = false): void {
+    if (
+      event.sessionId &&
+      event.sessionId !== 'global' &&
+      event.sessionId !== this.activeSessionId &&
+      !this.isInitialLoading &&
+      !this.isSwitchingSession
+    ) {
+      const source = (event.payload?.source as string) || (event.payload?.detectedSource as string) || 'copilot_cli';
+      this.switchSession(event.sessionId, source);
+      return;
+    }
+
     if (event.id) {
       if (this.seenEventIds.has(event.id)) {
         return; // Deduplicate already-received event
@@ -1111,7 +1286,6 @@ class App {
       if (sessEl) {
         sessEl.textContent = `LIVE: ${event.sessionId.slice(0, 12)}`;
       }
-      this.restoreSessionState(event.sessionId);
     }
 
     // Handle Emergency Stop event

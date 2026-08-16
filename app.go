@@ -133,6 +133,27 @@ func (a *App) GetHistory() []*events.Event {
 	return a.eventHub.History()
 }
 
+// GetSessionHistory returns history filtered for a session ID or loaded from session transcript.
+func (a *App) GetSessionHistory(sessionId string) []*events.Event {
+	if a.engine != nil && sessionId != "" && sessionId != "global" {
+		if evts := a.engine.GetSessionEvents(sessionId); len(evts) > 0 {
+			return evts
+		}
+	}
+	if a.eventHub != nil {
+		return a.eventHub.HistoryForSession(sessionId)
+	}
+	return nil
+}
+
+// AttachSession points auto-discovery engine to track a specific session ID.
+func (a *App) AttachSession(sessionId string) error {
+	if a.engine == nil {
+		return fmt.Errorf("engine not initialized")
+	}
+	return a.engine.AttachSession(sessionId)
+}
+
 // SaveTape saves the current tape recording to disk.
 func (a *App) SaveTape(id string) (string, error) {
 	if a.recorder == nil {

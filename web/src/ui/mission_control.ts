@@ -2,11 +2,19 @@ import type { ContextSaturationTelemetry } from '../analytics/context_saturation
 import type { GoalStackTelemetry } from '../analytics/goal_tracker';
 import type { BlastRadiusTelemetry } from '../analytics/blast_radius';
 import type { WaterfallTelemetry } from '../analytics/waterfall_timeline';
+import { getProviderIcon, getProviderLabel, getProviderColor } from './icons';
 
 export class MissionControlPanel {
   private container: HTMLElement;
   public isExpanded: boolean = false;
   public onToggle?: (isExpanded: boolean) => void;
+  public onSelectSession?: (sessionId: string, source: string) => void;
+
+  private currentSession: { id: string; source: string; path?: string; active?: boolean; model?: string } = {
+    id: 'global',
+    source: 'antigravity',
+  };
+  private sessionsList: any[] = [];
 
   constructor(containerId: string = 'mission-control-drawer') {
     let el = document.getElementById(containerId);
@@ -25,6 +33,10 @@ export class MissionControlPanel {
       <div class="mc-toggle-bar" id="mc-toggle-bar">
         <div class="mc-toggle-title">
           <span>🛰️ Mission Control</span>
+          <div class="mc-session-chip" id="mc-session-chip" title="Active AI Coding Session">
+            <span id="mc-chip-icon">${getProviderIcon('antigravity', 14)}</span>
+            <span id="mc-chip-label">SEARCHING SESSIONS...</span>
+          </div>
           <span class="mc-badge-context" id="mc-quick-context">Context: 0%</span>
           <span class="mc-badge-blast" id="mc-quick-blast">Blast: LOW</span>
         </div>
@@ -33,6 +45,37 @@ export class MissionControlPanel {
 
       <div class="mc-body" id="mc-body" style="display: none;">
         <div class="mc-grid">
+          <!-- 0. Active AI Agent Session & Telemetry Card -->
+          <div class="mc-card mc-card-session" id="mc-session-card">
+            <div class="mc-card-header">
+              <div class="mc-session-header-left">
+                <span id="mc-session-icon">${getProviderIcon(this.currentSession.source, 16)}</span>
+                <span id="mc-session-provider" style="color: ${getProviderColor(this.currentSession.source)}">${getProviderLabel(this.currentSession.source)}</span>
+              </div>
+              <span class="mc-session-live-pill live" id="mc-session-live-pill">● LIVE</span>
+            </div>
+            <div class="mc-session-body">
+              <div class="mc-session-field">
+                <span class="mc-field-label">SESSION ID</span>
+                <div class="mc-field-value-row">
+                  <span class="mc-field-val mc-val-mono" id="mc-sess-id">global</span>
+                  <button class="mc-btn-copy" id="mc-btn-copy-id" title="Copy Session ID">📋</button>
+                </div>
+              </div>
+              <div class="mc-session-field">
+                <span class="mc-field-label">LOG TRANSCRIPT PATH</span>
+                <div class="mc-field-value-row">
+                  <span class="mc-field-val mc-val-path" id="mc-sess-path" title="Host log file location">--</span>
+                  <button class="mc-btn-copy" id="mc-btn-copy-path" title="Copy Path">📋</button>
+                </div>
+              </div>
+              <div class="mc-session-footer-row">
+                <span class="mc-model-badge" id="mc-sess-model">gemini-3.7-flash</span>
+                <select class="speed-select" id="mc-session-switch-select" style="font-size: 10px; padding: 2px 6px; max-width: 140px;" title="Switch AI Agent Session"></select>
+              </div>
+            </div>
+          </div>
+
           <!-- 1. Context Saturation & Cache Tracker -->
           <div class="mc-card">
             <div class="mc-card-header">
@@ -123,6 +166,104 @@ export class MissionControlPanel {
       toggle();
     });
     toggleBar?.addEventListener('click', toggle);
+
+    // Copy buttons
+    const btnCopyId = document.getElementById('mc-btn-copy-id');
+    btnCopyId?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.currentSession.id) {
+        navigator.clipboard.writeText(this.currentSession.id);
+        btnCopyId.textContent = '✅';
+        setTimeout(() => { btnCopyId.textContent = '📋'; }, 1500);
+      }
+    });
+
+    const btnCopyPath = document.getElementById('mc-btn-copy-path');
+    btnCopyPath?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.currentSession.path) {
+        navigator.clipboard.writeText(this.currentSession.path);
+        btnCopyPath.textContent = '✅';
+        setTimeout(() => { btnCopyPath.textContent = '📋'; }, 1500);
+      }
+    });
+  }
+
+  public updateSessionInfo(
+    session: { id: string; source: string; path?: string; active?: boolean; model?: string },
+    sessionsList?: any[]
+  ): void {
+    this.currentSession = { ...this.currentSession, ...session };
+    if (sessionsList) {
+      this.sessionsList = sessionsList;
+    }
+
+    const { id, source, path, active, model } = this.currentSession;
+    const providerLabel = getProviderLabel(source);
+    const providerColor = getProviderColor(source);
+    const providerIconSvg = getProviderIcon(source, 16);
+
+    // 1. Toggle bar chip
+    const chipIcon = document.getElementById('mc-chip-icon');
+    const chipLabel = document.getElementById('mc-chip-label');
+    if (chipIcon) chipIcon.innerHTML = getProviderIcon(source, 14);
+    if (chipLabel) {
+      const shortId = id.length > 10 ? id.slice(0, 8) + '…' : id;
+      chipLabel.textContent = `${providerLabel}: ${shortId}`;
+      chipLabel.style.color = providerColor;
+    }
+
+    // 2. Mission Control Session Card
+    const sessIcon = document.getElementById('mc-session-icon');
+    const sessProvider = document.getElementById('mc-session-provider');
+    const sessLivePill = document.getElementById('mc-session-live-pill');
+    const sessIdEl = document.getElementById('mc-sess-id');
+    const sessPathEl = document.getElementById('mc-sess-path');
+    const sessModelEl = document.getElementById('mc-sess-model');
+
+    if (sessIcon) sessIcon.innerHTML = providerIconSvg;
+    if (sessProvider) {
+      sessProvider.textContent = providerLabel;
+      sessProvider.style.color = providerColor;
+    }
+    if (sessLivePill) {
+      const isLive = active !== false;
+      sessLivePill.textContent = isLive ? '● LIVE' : '⚪ IDLE';
+      sessLivePill.className = `mc-session-live-pill ${isLive ? 'live' : 'idle'}`;
+    }
+    if (sessIdEl) {
+      sessIdEl.textContent = id;
+      sessIdEl.title = id;
+    }
+    if (sessPathEl) {
+      sessPathEl.textContent = path || 'Auto-Discovered Stream';
+      sessPathEl.title = path || '';
+    }
+    if (sessModelEl && model) {
+      sessModelEl.textContent = model;
+    }
+
+    // 3. Populate session switch dropdown
+    const select = document.getElementById('mc-session-switch-select') as HTMLSelectElement;
+    if (select && this.sessionsList.length > 0) {
+      select.innerHTML = '';
+      this.sessionsList.forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        const short = s.id.length > 10 ? s.id.slice(0, 8) + '…' : s.id;
+        opt.textContent = `${s.source.toUpperCase()}: ${short}`;
+        if (s.id === id) opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      select.onchange = () => {
+        const chosenId = select.value;
+        const found = this.sessionsList.find((x) => x.id === chosenId);
+        if (found && this.onSelectSession) {
+          this.onSelectSession(found.id, found.source);
+        }
+      };
+    }
   }
 
   public update(

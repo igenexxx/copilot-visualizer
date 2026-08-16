@@ -14,6 +14,10 @@ import (
 
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/providers"
+	_ "github.com/zhenya/copilot-visualizer/pkg/providers/antigravity"
+	_ "github.com/zhenya/copilot-visualizer/pkg/providers/claude"
+	_ "github.com/zhenya/copilot-visualizer/pkg/providers/copilot"
+	_ "github.com/zhenya/copilot-visualizer/pkg/providers/generic"
 )
 
 // Broadcaster sends parsed live events.
@@ -253,6 +257,64 @@ func (e *Engine) pollActiveSession() {
 		e.lastFileOffset = newOffset
 		e.mu.Unlock()
 	}
+}
+
+// GetActiveSession returns the currently attached active session if any.
+func (e *Engine) GetActiveSession() *DiscoveredSession {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.activeSession == nil {
+		return nil
+	}
+	copied := *e.activeSession
+	return &copied
+}
+
+// AttachSession explicitly points the engine to track the specified session ID.
+func (e *Engine) AttachSession(sessionID string) error {
+	sessions := e.ScanSessions()
+	for _, sess := range sessions {
+		if sess.ID == sessionID {
+			e.mu.Lock()
+			e.activeSession = &sess
+			e.lastFileOffset = 0
+			e.mu.Unlock()
+			return nil
+		}
+	}
+	return fmt.Errorf("session %q not found", sessionID)
+}
+
+// GetSessionEvents reads and parses all events from the transcript file of a given session.
+func (e *Engine) GetSessionEvents(sessionID string) []*events.Event {
+	sessions := e.ScanSessions()
+	for _, sess := range sessions {
+		if sess.ID == sessionID {
+			file, err := os.Open(sess.Path)
+			if err != nil {
+				return nil
+			}
+			defer file.Close()
+
+			var results []*events.Event
+			scanner := bufio.NewScanner(file)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if len(line) == 0 {
+					continue
+				}
+				var evts []*events.Event
+				if sess.Provider != nil {
+					evts = sess.Provider.ParseLine(line, sessionID)
+				} else if e.parser != nil {
+					evts = e.parser.Parse(line, sessionID)
+				}
+				results = append(results, evts...)
+			}
+			return results
+		}
+	}
+	return nil
 }
 
 func minInt(a, b int) int {

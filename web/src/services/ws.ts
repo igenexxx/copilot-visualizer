@@ -105,11 +105,18 @@ export class VisualizerClient {
     this.statusListeners.forEach((l) => l(connected));
   }
 
-  public async fetchHistory(): Promise<VisualizerEvent[]> {
+  public async fetchHistory(sessionId?: string): Promise<VisualizerEvent[]> {
     const wailsApp = (window as any).go?.main?.App;
-    if (wailsApp && typeof wailsApp.GetSessionState === 'function') {
+    if (wailsApp && typeof wailsApp.GetSessionHistory === 'function') {
       try {
-        const state = await wailsApp.GetSessionState('desktop');
+        const history = await wailsApp.GetSessionHistory(sessionId || '');
+        if (history && history.length > 0) return history;
+      } catch (err) {
+        console.warn('Wails GetSessionHistory error:', err);
+      }
+    } else if (wailsApp && typeof wailsApp.GetSessionState === 'function') {
+      try {
+        const state = await wailsApp.GetSessionState(sessionId || 'desktop');
         return state?.events || [];
       } catch (err) {
         console.warn('Wails GetSessionState error:', err);
@@ -118,7 +125,8 @@ export class VisualizerClient {
 
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {
-      const res = await fetch(`${host}/api/history`);
+      const url = sessionId ? `${host}/api/history?sessionId=${encodeURIComponent(sessionId)}` : `${host}/api/history`;
+      const res = await fetch(url);
       if (res.ok) {
         return await res.json();
       }
@@ -126,6 +134,27 @@ export class VisualizerClient {
       console.warn('Failed to fetch history:', e);
     }
     return [];
+  }
+
+  public async attachSession(sessionId: string): Promise<boolean> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.AttachSession === 'function') {
+      try {
+        await wailsApp.AttachSession(sessionId);
+        return true;
+      } catch (err) {
+        console.warn('Wails AttachSession error:', err);
+      }
+    }
+
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/sessions/attach?id=${encodeURIComponent(sessionId)}`);
+      return res.ok;
+    } catch (e) {
+      console.warn('Failed to attach session:', e);
+      return false;
+    }
   }
 
   public async fetchRepoTree(): Promise<any[]> {

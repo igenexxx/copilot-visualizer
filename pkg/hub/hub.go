@@ -155,6 +155,24 @@ func (h *Hub) History() []*events.Event {
 	return copied
 }
 
+// HistoryForSession returns event history filtered for a specific session ID.
+func (h *Hub) HistoryForSession(sessionID string) []*events.Event {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if sessionID == "" || sessionID == "global" {
+		copied := make([]*events.Event, len(h.history))
+		copy(copied, h.history)
+		return copied
+	}
+	var filtered []*events.Event
+	for _, evt := range h.history {
+		if evt != nil && evt.SessionID == sessionID {
+			filtered = append(filtered, evt)
+		}
+	}
+	return filtered
+}
+
 // ClearHistory resets the recorded events.
 func (h *Hub) ClearHistory() {
 	h.mu.Lock()
