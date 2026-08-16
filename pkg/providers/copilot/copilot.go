@@ -308,7 +308,41 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 			res = append(res, evt)
 		}
 
-		// 6. Permission requested (Security Gate checkpoint)
+		// 6. Tool execution complete (output, test results, build errors)
+		if eventType == "tool.execution_complete" {
+			success, _ := dataMap["success"].(bool)
+			resultMap, _ := dataMap["result"].(map[string]any)
+			content := ""
+			if resultMap != nil {
+				if c, ok := resultMap["content"].(string); ok {
+					content = c
+				} else if d, ok := resultMap["detailedContent"].(string); ok {
+					content = d
+				}
+			}
+
+			preview := "Tool execution finished"
+			if content != "" {
+				firstLine := strings.Split(strings.TrimSpace(content), "\n")[0]
+				if len(firstLine) > 60 {
+					preview = firstLine[:58] + "…"
+				} else {
+					preview = firstLine
+				}
+			}
+
+			evt := events.NewEvent(fmt.Sprintf("copilot-tool-done-%d", now), sessionID, events.TypeCommandOutput, "agent-copilot", preview).
+				WithRole(events.RoleTester).
+				WithStation(events.StationTestFurnace).
+				WithSummary(content).
+				WithPayload("success", success).
+				WithPayload("output", content).
+				WithPayload("detectedSource", "copilot_cli").
+				WithPayload("detectedModel", currentModel)
+			res = append(res, evt)
+		}
+
+		// 7. Permission requested (Security Gate checkpoint)
 		if eventType == "permission.requested" {
 			summary := "Permission requested for command/tool execution"
 			if pReq, ok := dataMap["permissionRequest"].(map[string]any); ok {
@@ -326,7 +360,42 @@ func (p *Provider) ParseLine(line string, sessionID string) []*events.Event {
 			res = append(res, evt)
 		}
 
-		// 7. Session shutdown
+		// 8. Permission completed (Security Gate approval/rejection)
+		if eventType == "permission.completed" {
+			decision := "approved"
+			if resMap, ok := dataMap["result"].(map[string]any); ok {
+				if kind, ok := resMap["kind"].(string); ok && kind != "" {
+					decision = kind
+				}
+			}
+			title := "Checkpoint: Approved"
+			if decision == "rejected" {
+				title = "Checkpoint: Rejected"
+			}
+			evt := events.NewEvent(fmt.Sprintf("copilot-perm-done-%d", now), sessionID, events.TypeCheckpointDecision, "agent-copilot", title).
+				WithRole(events.RoleInspector).
+				WithStation(events.StationSecurityGate).
+				WithSummary(fmt.Sprintf("Permission decision: %s", decision)).
+				WithPayload("decision", decision).
+				WithPayload("detectedSource", "copilot_cli").
+				WithPayload("detectedModel", currentModel)
+			res = append(res, evt)
+		}
+
+		// 9. Session usage checkpoint (Tokenomics)
+		if eventType == "session.usage_checkpoint" {
+			totalAiu, _ := dataMap["totalNanoAiu"].(float64)
+			evt := events.NewEvent(fmt.Sprintf("copilot-usage-%d", now), sessionID, events.TypeAgentThink, "agent-copilot", "Telemetry Checkpoint").
+				WithRole(events.RoleForeman).
+				WithStation(events.StationForemanDesk).
+				WithSummary("Copilot usage checkpoint recorded").
+				WithPayload("totalNanoAiu", totalAiu).
+				WithPayload("detectedSource", "copilot_cli").
+				WithPayload("detectedModel", currentModel)
+			res = append(res, evt)
+		}
+
+		// 10. Session shutdown
 		if eventType == "session.shutdown" {
 			evt := events.NewEvent(fmt.Sprintf("copilot-end-%d", now), sessionID, events.TypeSessionEnd, "agent-copilot", "Copilot Session Finished").
 				WithRole(events.RoleForeman).

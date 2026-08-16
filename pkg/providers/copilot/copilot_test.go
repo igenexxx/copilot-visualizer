@@ -139,11 +139,35 @@ func TestCopilot_StructuredEvents(t *testing.T) {
 			expectedModel: "o3-mini",
 		},
 		{
+			name:          "tool.execution_complete output",
+			line:          `{"type":"tool.execution_complete","data":{"success":true,"result":{"content":"PASS: 12 tests passed"}}}`,
+			expectedCount: 1,
+			expectedType:  events.TypeCommandOutput,
+			expectedRole:  events.RoleTester,
+			expectedModel: "o3-mini",
+		},
+		{
 			name:          "permission.requested checkpoint",
 			line:          `{"type":"permission.requested","data":{"permissionRequest":{"intention":"Run tests"}}}`,
 			expectedCount: 1,
 			expectedType:  events.TypeCheckpointRequest,
 			expectedRole:  events.RoleInspector,
+			expectedModel: "o3-mini",
+		},
+		{
+			name:          "permission.completed decision",
+			line:          `{"type":"permission.completed","data":{"result":{"kind":"approved"}}}`,
+			expectedCount: 1,
+			expectedType:  events.TypeCheckpointDecision,
+			expectedRole:  events.RoleInspector,
+			expectedModel: "o3-mini",
+		},
+		{
+			name:          "session.usage_checkpoint telemetry",
+			line:          `{"type":"session.usage_checkpoint","data":{"totalNanoAiu":27353260000}}`,
+			expectedCount: 1,
+			expectedType:  events.TypeAgentThink,
+			expectedRole:  events.RoleForeman,
 			expectedModel: "o3-mini",
 		},
 		{
@@ -256,5 +280,73 @@ func TestCopilot_AdversarialInputs(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCopilot_FullLifecycleHistorySimulation(t *testing.T) {
+	p := copilot.New()
+	sessionID := "f6cc59be-7d6f-48c3-880a-7398dbbeac5a"
+
+	historyLines := []string{
+		`{"type":"session.start","data":{"sessionId":"f6cc59be-7d6f-48c3-880a-7398dbbeac5a","producer":"copilot-agent","model":"gpt-5.6-terra"}}`,
+		`{"type":"user.message","data":{"content":"Please add vitest tests to the parser module and run them"}}`,
+		`{"type":"assistant.message","data":{"reasoningText":"Let's inspect existing tests and run vitest"}}`,
+		`{"type":"permission.requested","data":{"permissionRequest":{"intention":"execute bash command: npm test"}}}`,
+		`{"type":"permission.completed","data":{"result":{"kind":"approved"}}}`,
+		`{"type":"tool.execution_start","data":{"toolName":"bash","arguments":{"command":"npm test"}}}`,
+		`{"type":"tool.execution_complete","data":{"success":true,"result":{"content":"PASS src/parser.test.ts\n5 tests passed"}}}`,
+		`{"type":"tool.execution_start","data":{"toolName":"edit","arguments":{"path":"src/parser.ts"}}}`,
+		`{"type":"session.usage_checkpoint","data":{"totalNanoAiu":27353260000}}`,
+		`{"type":"session.shutdown","data":{}}`,
+	}
+
+	var allEvents []*events.Event
+	for _, line := range historyLines {
+		evts := p.ParseLine(line, sessionID)
+		allEvents = append(allEvents, evts...)
+	}
+
+	if len(allEvents) < 9 {
+		t.Fatalf("expected at least 9 parsed events from lifecycle, got %d", len(allEvents))
+	}
+
+	// Verify stations coverage
+	stationsSeen := make(map[events.StationType]bool)
+	typesSeen := make(map[events.Type]bool)
+	for _, evt := range allEvents {
+		stationsSeen[evt.Station] = true
+		typesSeen[evt.Type] = true
+		if evt.SessionID != sessionID {
+			t.Errorf("expected sessionID %q, got %q", sessionID, evt.SessionID)
+		}
+	}
+
+	expectedStations := []events.StationType{
+		events.StationForemanDesk,
+		events.StationSecurityGate,
+		events.StationTestFurnace,
+		events.StationCNCLathe,
+	}
+	for _, s := range expectedStations {
+		if !stationsSeen[s] {
+			t.Errorf("expected station %s to be activated during Copilot lifecycle", s)
+		}
+	}
+
+	expectedTypes := []events.Type{
+		events.TypeSessionStart,
+		events.TypeInterventionPrompt,
+		events.TypeAgentThink,
+		events.TypeCheckpointRequest,
+		events.TypeCheckpointDecision,
+		events.TypeCommandRun,
+		events.TypeCommandOutput,
+		events.TypeFileWrite,
+		events.TypeSessionEnd,
+	}
+	for _, typ := range expectedTypes {
+		if !typesSeen[typ] {
+			t.Errorf("expected event type %s to be generated during Copilot lifecycle", typ)
+		}
 	}
 }
