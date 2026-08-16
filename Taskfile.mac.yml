@@ -1,0 +1,110 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+# Copilot Visualizer — macOS Gatekeeper, Signing & Permission Fixer
+# Usage: task -f Taskfile.mac.yml <task> or task mac:<task>
+
+version: '3'
+
+vars:
+  APP_NAME: copilot-visualizer
+  BIN_SERVER: ./copilot-visualizer
+  BIN_DARWIN_ARM64: ./dist/copilot-visualizer-server-darwin-arm64
+  BIN_DARWIN_AMD64: ./dist/copilot-visualizer-server-darwin-amd64
+  APP_BUNDLE: ./build/bin/CopilotVisualizer.app
+  DESKTOP_BIN: ./build/bin/copilot-visualizer-desktop
+
+tasks:
+  default:
+    desc: List all macOS gatekeeper and signing remediation tasks
+    cmds:
+      - task --taskfile Taskfile.mac.yml --list
+
+  # ─────────────────────────────────────────────────────────────────
+  # [PRIMARY] ONE-CLICK GATEKEEPER & QUARANTINE FIX
+  # ─────────────────────────────────────────────────────────────────
+
+  fix:
+    desc: '🛡️ [ONE-CLICK] Remove macOS quarantine and ad-hoc sign all local binaries'
+    summary: |
+      Bypasses macOS "Apple could not verify app is free of malware" Gatekeeper block
+      by removing the com.apple.quarantine attribute and applying ad-hoc code signatures.
+    cmds:
+      - task: unquarantine
+      - task: sign
+      - echo "✅ [macOS] All binaries unquarantined, ad-hoc signed, and ready to launch!"
+
+  unquarantine:
+    desc: 'Remove com.apple.quarantine attribute from all macOS binaries and .app bundles'
+    cmds:
+      - |
+        echo "🔓 Stripping com.apple.quarantine attributes..."
+        for target in "{{.BIN_SERVER}}" "{{.BIN_DARWIN_ARM64}}" "{{.BIN_DARWIN_AMD64}}" "{{.APP_BUNDLE}}" "{{.DESKTOP_BIN}}"; do
+          if [ -e "$target" ]; then
+            xattr -d com.apple.quarantine "$target" 2>/dev/null || true
+            xattr -cr "$target" 2>/dev/null || true
+            chmod +x "$target" 2>/dev/null || true
+            echo "  ✓ Cleared quarantine: $target"
+          fi
+        done
+        # Also clean any downloaded binary in current directory or /Applications
+        if [ -d "/Applications/CopilotVisualizer.app" ]; then
+          xattr -cr /Applications/CopilotVisualizer.app 2>/dev/null || true
+          echo "  ✓ Cleared quarantine: /Applications/CopilotVisualizer.app"
+        fi
+
+  sign:
+    desc: 'Ad-hoc codesign binaries and .app bundles for local execution without developer cert'
+    cmds:
+      - |
+        echo "✍️ Applying local ad-hoc code signatures (codesign -s -)..."
+        for target in "{{.BIN_SERVER}}" "{{.BIN_DARWIN_ARM64}}" "{{.BIN_DARWIN_AMD64}}" "{{.APP_BUNDLE}}" "{{.DESKTOP_BIN}}"; do
+          if [ -e "$target" ]; then
+            codesign --force --deep --sign - "$target" 2>/dev/null || true
+            echo "  ✓ Signed: $target"
+          fi
+        done
+
+  # ─────────────────────────────────────────────────────────────────
+  # DIAGNOSTICS & VERIFICATION
+  # ─────────────────────────────────────────────────────────────────
+
+  verify:
+    desc: 'Inspect extended attributes (xattr) and code signatures on macOS binaries'
+    cmds:
+      - |
+        echo "🔍 Inspecting macOS binary security metadata..."
+        for target in "{{.BIN_SERVER}}" "{{.BIN_DARWIN_ARM64}}" "{{.BIN_DARWIN_AMD64}}" "{{.APP_BUNDLE}}" "{{.DESKTOP_BIN}}"; do
+          if [ -e "$target" ]; then
+            echo "\n=== $target ==="
+            echo "[Attributes]:"
+            xattr -l "$target" 2>/dev/null || echo "  (None - Quarantine cleared)"
+            echo "[Signature]:"
+            codesign -dvv "$target" 2>&1 || echo "  (Unsigned)"
+          fi
+        done
+
+  # ─────────────────────────────────────────────────────────────────
+  # TARGETED HELPERS (Custom path via BIN=...)
+  # ─────────────────────────────────────────────────────────────────
+
+  fix-path:
+    desc: 'Fix specific binary or app path passed via BIN=... (e.g. task mac:fix-path BIN=./my-binary)'
+    vars:
+      TARGET: '{{.BIN | default "./copilot-visualizer"}}'
+    cmds:
+      - |
+        if [ ! -e "{{.TARGET}}" ]; then
+          echo "❌ Error: Target file or app '{{.TARGET}}' not found."
+          exit 1
+        fi
+        echo "🛡️ Fixing macOS Gatekeeper for: {{.TARGET}}"
+        xattr -d com.apple.quarantine "{{.TARGET}}" 2>/dev/null || true
+        xattr -cr "{{.TARGET}}" 2>/dev/null || true
+        chmod +x "{{.TARGET}}" 2>/dev/null || true
+        codesign --force --deep --sign - "{{.TARGET}}" 2>/dev/null || true
+        echo "✅ Successfully fixed '{{.TARGET}}'! You can now launch it."
+
+  open-gui:
+    desc: 'Open macOS System Settings directly to Privacy & Security -> Security'
+    cmds:
+      - open "x-apple.systempreferences:com.apple.preference.security?Privacy_Security" 2>/dev/null || open "/System/Applications/System Settings.app"
+      - echo "Opened System Settings. Scroll to 'Security' and click 'Open Anyway'."

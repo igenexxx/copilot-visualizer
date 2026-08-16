@@ -4,6 +4,9 @@ includes:
   build:
     taskfile: Taskfile.build.yml
     optional: false
+  mac:
+    taskfile: Taskfile.mac.yml
+    optional: true
 
 vars:
   BINARY_NAME: copilot-visualizer
