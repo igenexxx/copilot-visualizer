@@ -616,13 +616,24 @@ export class WorkshopCanvas {
 
           // Record motion breadcrumb trail point
           let lastPoint: WorkerTrailPoint | undefined;
+          let countForAgent = 0;
           for (let idx = this.workerTrails.length - 1; idx >= 0; idx--) {
             if (this.workerTrails[idx].agentId === worker.id && this.workerTrails[idx].floorLevel === fl.level) {
-              lastPoint = this.workerTrails[idx];
-              break;
+              if (!lastPoint) lastPoint = this.workerTrails[idx];
+              countForAgent++;
             }
           }
-          if (!lastPoint || Math.hypot(worker.x - lastPoint.x, worker.y - lastPoint.y) >= 0.28) {
+          if (!lastPoint || Math.hypot(worker.x - lastPoint.x, worker.y - lastPoint.y) >= 0.22) {
+            // Cap maximum trail nodes per agent to 120 to preserve memory
+            if (countForAgent >= 120) {
+              for (let idx = 0; idx < this.workerTrails.length; idx++) {
+                if (this.workerTrails[idx].agentId === worker.id && this.workerTrails[idx].floorLevel === fl.level) {
+                  this.workerTrails.splice(idx, 1);
+                  break;
+                }
+              }
+            }
+
             this.workerTrails.push({
               agentId: worker.id,
               x: worker.x,
@@ -710,13 +721,15 @@ export class WorkshopCanvas {
       }
     }
 
-    // 5. Update worker breadcrumb trails (decay opacity smoothly over 2.5 seconds)
+    // 5. Update worker breadcrumb trails (decay opacity smoothly over 12 seconds)
     const now = Date.now();
+    const TRAIL_LIFETIME = 12000;
     for (let i = this.workerTrails.length - 1; i >= 0; i--) {
       const tp = this.workerTrails[i];
       const age = now - tp.createdAt;
-      tp.opacity = Math.max(0, 1.0 - age / 2500);
-      if (tp.opacity <= 0) {
+      const progress = age / TRAIL_LIFETIME;
+      tp.opacity = Math.max(0, Math.pow(1.0 - progress, 1.4));
+      if (tp.opacity <= 0 || age >= TRAIL_LIFETIME) {
         this.workerTrails.splice(i, 1);
       }
     }
@@ -972,65 +985,90 @@ export class WorkshopCanvas {
   }
 
   private renderWorkerTrails(floorLevel: number): void {
+    if (this.workerTrails.length === 0) return;
     const ctx = this.ctx;
     const z = this.zoom;
+    const now = Date.now();
 
     // Group trail points by agentId
     const trailsByAgent = new Map<string, WorkerTrailPoint[]>();
-    for (const tp of this.workerTrails) {
+    for (let i = 0; i < this.workerTrails.length; i++) {
+      const tp = this.workerTrails[i];
       if (tp.floorLevel !== floorLevel) continue;
-      if (!trailsByAgent.has(tp.agentId)) {
-        trailsByAgent.set(tp.agentId, []);
+      let list = trailsByAgent.get(tp.agentId);
+      if (!list) {
+        list = [];
+        trailsByAgent.set(tp.agentId, list);
       }
-      trailsByAgent.get(tp.agentId)!.push(tp);
+      list.push(tp);
     }
 
     for (const [, points] of trailsByAgent.entries()) {
-      if (points.length === 0) continue;
+      const len = points.length;
+      if (len === 0) continue;
 
-      // 1. Draw glowing connecting dashed spline line
+      const primaryColor = points[len - 1].color || '#38bdf8';
+
       ctx.save();
-      const primaryColor = points[points.length - 1].color || '#38bdf8';
-      ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 1.6 * z;
-      ctx.setLineDash([4 * z, 3 * z]);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-      ctx.beginPath();
-      for (let i = 0; i < points.length; i++) {
-        const pt = points[i];
-        const screenPos = this.isoToScreen(pt.x, pt.y, floorLevel);
-        if (i === 0) {
-          ctx.moveTo(screenPos.x, screenPos.y);
-        } else {
-          ctx.lineTo(screenPos.x, screenPos.y);
+      // 1. Draw smooth tapered light-ribbon between historical waypoints
+      if (len >= 2) {
+        for (let i = 0; i < len - 1; i++) {
+          const p1 = points[i];
+          const p2 = points[i + 1];
+          const s1 = this.isoToScreen(p1.x, p1.y, floorLevel);
+          const s2 = this.isoToScreen(p2.x, p2.y, floorLevel);
+
+          const segProgress = (i + 1) / len; // 0 (tail) -> 1 (head)
+          const avgOpacity = (p1.opacity + p2.opacity) * 0.5;
+
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = (0.8 + 1.4 * segProgress) * z;
+          ctx.globalAlpha = Math.min(0.48, avgOpacity * (0.18 + 0.32 * segProgress));
+
+          ctx.beginPath();
+          ctx.moveTo(s1.x, s1.y);
+          ctx.lineTo(s2.x, s2.y);
+          ctx.stroke();
+        }
+
+        // 2. Extra radiant glow tail directly behind the worker (for newest 3 points)
+        const headIdx = Math.max(0, len - 3);
+        const headPt = points[len - 1];
+        if (now - headPt.createdAt < 2200) {
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = 3.6 * z;
+          ctx.globalAlpha = 0.22;
+          ctx.beginPath();
+          for (let i = headIdx; i < len; i++) {
+            const pos = this.isoToScreen(points[i].x, points[i].y, floorLevel);
+            if (i === headIdx) ctx.moveTo(pos.x, pos.y);
+            else ctx.lineTo(pos.x, pos.y);
+          }
+          ctx.stroke();
         }
       }
-      ctx.globalAlpha = 0.45;
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
 
-      // 2. Draw individual fading breadcrumb footprint rings
-      for (const pt of points) {
-        const screenPos = this.isoToScreen(pt.x, pt.y, floorLevel);
+      // 3. Ambient isometric footprint nodes (drawn in single pass, soft and unobtrusive)
+      ctx.fillStyle = primaryColor;
+      for (let i = 0; i < len; i += 2) {
+        const pt = points[i];
+        if (pt.opacity < 0.04) continue;
+        const pos = this.isoToScreen(pt.x, pt.y, floorLevel);
+        const ptAge = now - pt.createdAt;
+        const isHead = ptAge < 1600;
 
-        ctx.save();
-        ctx.globalAlpha = pt.opacity;
-
-        // Outer soft glow ring
-        ctx.fillStyle = pt.color;
+        ctx.globalAlpha = Math.min(0.45, pt.opacity * (isHead ? 0.4 : 0.2));
         ctx.beginPath();
-        ctx.ellipse(screenPos.x, screenPos.y, 4.5 * z, 2.5 * z, 0, 0, Math.PI * 2);
+        const rx = (isHead ? 3.2 : 2.2) * z;
+        const ry = (isHead ? 1.6 : 1.1) * z;
+        ctx.ellipse(pos.x, pos.y, rx, ry, 0, 0, Math.PI * 2);
         ctx.fill();
-
-        // Bright core dot
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.ellipse(screenPos.x, screenPos.y, 1.8 * z, 1.0 * z, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
       }
+
+      ctx.restore();
     }
   }
 
