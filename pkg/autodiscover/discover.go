@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/providers"
 	_ "github.com/zhenya/copilot-visualizer/pkg/providers/antigravity"
@@ -26,6 +28,8 @@ type Broadcaster interface {
 }
 
 // Engine scans and automatically attaches to active AI coding agent sessions using modular providers.
+// It utilizes a hybrid approach: native OS events (inotify/FSEvents/ReadDirectoryChangesW) via fsnotify for instant
+// sub-millisecond reaction, coupled with a periodic heartbeat safety-net for WSL / network-mounted paths.
 type Engine struct {
 	broadcaster Broadcaster
 	registry    *providers.Registry
@@ -33,11 +37,13 @@ type Engine struct {
 	watchPaths  []string
 	pollDelay   time.Duration
 
-	mu             sync.Mutex
+	mu             sync.RWMutex
 	activeSession  *DiscoveredSession
 	lastFileOffset int64
 	running        bool
 	cancel         context.CancelFunc
+	fsWatcher      *fsnotify.Watcher
+	watchedPaths   map[string]bool
 }
 
 // NewEngine initializes the session auto-discovery engine with default system locations from all registered providers.
@@ -49,22 +55,24 @@ func NewEngine(broadcaster Broadcaster, customPaths []string) *Engine {
 	allPaths := append(allPatterns, customPaths...)
 
 	return &Engine{
-		broadcaster: broadcaster,
-		registry:    reg,
-		parser:      NewAntigravityParser(),
-		watchPaths:  allPaths,
-		pollDelay:   1500 * time.Millisecond,
+		broadcaster:  broadcaster,
+		registry:     reg,
+		parser:       NewAntigravityParser(),
+		watchPaths:   allPaths,
+		pollDelay:    2 * time.Second,
+		watchedPaths: make(map[string]bool),
 	}
 }
 
 // NewEngineWithWatchPaths creates an engine watching the specified paths.
 func NewEngineWithWatchPaths(broadcaster Broadcaster, paths []string) *Engine {
 	return &Engine{
-		broadcaster: broadcaster,
-		registry:    providers.GlobalRegistry(),
-		parser:      NewAntigravityParser(),
-		watchPaths:  paths,
-		pollDelay:   1500 * time.Millisecond,
+		broadcaster:  broadcaster,
+		registry:     providers.GlobalRegistry(),
+		parser:       NewAntigravityParser(),
+		watchPaths:   paths,
+		pollDelay:    2 * time.Second,
+		watchedPaths: make(map[string]bool),
 	}
 }
 
@@ -139,87 +147,182 @@ func (e *Engine) ScanSessions() []DiscoveredSession {
 	return results
 }
 
-// StartWatcher starts the background auto-attach scanner.
+// StartWatcher starts the background hybrid OS-event + heartbeat scanner.
 func (e *Engine) StartWatcher(ctx context.Context) {
 	e.mu.Lock()
 	if e.running {
 		e.mu.Unlock()
 		return
 	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Printf("⚠️ Failed to initialize OS file watcher, falling back to polling: %v", err)
+	} else {
+		e.fsWatcher = watcher
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	e.cancel = cancel
 	e.running = true
 	e.mu.Unlock()
 
-	go e.run(ctx)
+	// Initial scan to establish watches and attach to active session
+	e.syncWatches()
+	e.pollActiveSession()
+
+	go e.run(ctx, watcher)
 }
 
-// StopWatcher stops the background watcher.
+// StopWatcher stops the background watcher and cleans up OS watch descriptors.
 func (e *Engine) StopWatcher() {
 	e.mu.Lock()
-	defer e.mu.Unlock()
+	if !e.running {
+		e.mu.Unlock()
+		return
+	}
 	if e.cancel != nil {
 		e.cancel()
 		e.cancel = nil
 	}
-	e.running = false
-}
-
-func (e *Engine) run(ctx context.Context) {
-	ticker := time.NewTicker(e.pollDelay)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			e.pollActiveSession()
-		}
+	if e.fsWatcher != nil {
+		_ = e.fsWatcher.Close()
+		e.fsWatcher = nil
 	}
+	e.watchedPaths = make(map[string]bool)
+	e.running = false
+	e.mu.Unlock()
 }
 
-func (e *Engine) pollActiveSession() {
-	sessions := e.ScanSessions()
-	if len(sessions) == 0 {
+// addWatch adds a path to the fsnotify watcher safely. Must be called with e.mu held.
+func (e *Engine) addWatch(targetPath string) {
+	if e.fsWatcher == nil || targetPath == "" {
+		return
+	}
+	clean := filepath.Clean(targetPath)
+	if e.watchedPaths[clean] {
 		return
 	}
 
-	newest := sessions[0]
+	if _, err := os.Stat(clean); err == nil {
+		if err := e.fsWatcher.Add(clean); err == nil {
+			e.watchedPaths[clean] = true
+		}
+	}
+}
 
+// syncWatches registers static root directories and discovered session folders with fsnotify.
+func (e *Engine) syncWatches() {
 	e.mu.Lock()
-	isNewSession := e.activeSession == nil || e.activeSession.Path != newest.Path
-	if isNewSession {
-		e.activeSession = &newest
-		e.lastFileOffset = 0
-		log.Printf("🔍 Auto-discovered active session: %s [%s] at %s", newest.ID, newest.Source, newest.Path)
+	defer e.mu.Unlock()
 
-		// Broadcast session discovered announcement
-		startEvt := events.NewEvent(
-			fmt.Sprintf("discover-%d", time.Now().UnixNano()),
-			newest.ID,
-			events.TypeSessionStart,
-			"agent-foreman",
-			fmt.Sprintf("Auto-Attached: %s (%s)", newest.Source, newest.ID[:minInt(8, len(newest.ID))]),
-		).
-			WithRole(events.RoleForeman).
-			WithStation(events.StationForemanDesk).
-			WithSummary(fmt.Sprintf("Tracking live transcript: %s", newest.Path)).
-			WithPayload("source", string(newest.Source)).
-			WithPayload("sessionPath", newest.Path)
-
-		if e.broadcaster != nil {
-			_ = e.broadcaster.BroadcastEvent(startEvt)
+	// 1. Add static root folders from watch glob patterns
+	for _, pattern := range e.watchPaths {
+		rootDir := extractGlobRoot(pattern)
+		if rootDir != "" {
+			e.addWatch(rootDir)
 		}
 	}
 
+	// 2. Add active session file and directory if set
+	if e.activeSession != nil {
+		e.addWatch(filepath.Dir(e.activeSession.Path))
+		e.addWatch(e.activeSession.Path)
+	}
+}
+
+func extractGlobRoot(pattern string) string {
+	idx := strings.IndexAny(pattern, "*?[")
+	if idx == -1 {
+		return filepath.Dir(pattern)
+	}
+	sub := pattern[:idx]
+	return filepath.Dir(sub)
+}
+
+func (e *Engine) run(ctx context.Context, watcher *fsnotify.Watcher) {
+	heartbeat := time.NewTicker(e.pollDelay)
+	defer heartbeat.Stop()
+
+	for {
+		if watcher != nil {
+			select {
+			case <-ctx.Done():
+				return
+
+			case evt, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				e.handleFSEvent(evt)
+
+			case _, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+
+			case <-heartbeat.C:
+				e.syncWatches()
+				e.pollActiveSession()
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return
+			case <-heartbeat.C:
+				e.pollActiveSession()
+			}
+		}
+	}
+}
+
+func (e *Engine) handleFSEvent(evt fsnotify.Event) {
+	cleanName := filepath.Clean(evt.Name)
+
+	e.mu.RLock()
+	activePath := ""
+	if e.activeSession != nil {
+		activePath = e.activeSession.Path
+	}
+	e.mu.RUnlock()
+
+	// Instant reactive read on Write to active transcript file
+	if evt.Has(fsnotify.Write) && (activePath != "" && (cleanName == activePath || strings.HasSuffix(cleanName, "events.jsonl") || strings.HasSuffix(cleanName, "transcript.jsonl"))) {
+		e.readAppendedEvents()
+		return
+	}
+
+	// Dynamic directory / session file creation
+	if evt.Has(fsnotify.Create) {
+		if fi, err := os.Stat(cleanName); err == nil {
+			if fi.IsDir() {
+				e.mu.Lock()
+				e.addWatch(cleanName)
+				e.mu.Unlock()
+			}
+		}
+		e.pollActiveSession()
+		return
+	}
+
+	// Rename or removal of active log
+	if evt.Has(fsnotify.Rename) || evt.Has(fsnotify.Remove) {
+		e.pollActiveSession()
+	}
+}
+
+func (e *Engine) readAppendedEvents() {
+	e.mu.Lock()
+	if e.activeSession == nil {
+		e.mu.Unlock()
+		return
+	}
 	sessionPath := e.activeSession.Path
 	sessionID := e.activeSession.ID
 	lastOffset := e.lastFileOffset
 	provider := e.activeSession.Provider
 	e.mu.Unlock()
 
-	// Read newly appended data
 	file, err := os.Open(sessionPath)
 	if err != nil {
 		return
@@ -257,6 +360,48 @@ func (e *Engine) pollActiveSession() {
 		e.lastFileOffset = newOffset
 		e.mu.Unlock()
 	}
+}
+
+func (e *Engine) pollActiveSession() {
+	sessions := e.ScanSessions()
+	if len(sessions) == 0 {
+		return
+	}
+
+	newest := sessions[0]
+
+	e.mu.Lock()
+	isNewSession := e.activeSession == nil || e.activeSession.Path != newest.Path
+	if isNewSession {
+		e.activeSession = &newest
+		e.lastFileOffset = 0
+		log.Printf("🔍 Auto-discovered active session: %s [%s] at %s", newest.ID, newest.Source, newest.Path)
+
+		// Dynamically watch newly discovered session directory and file
+		e.addWatch(filepath.Dir(newest.Path))
+		e.addWatch(newest.Path)
+
+		// Broadcast session discovered announcement
+		startEvt := events.NewEvent(
+			fmt.Sprintf("discover-%d", time.Now().UnixNano()),
+			newest.ID,
+			events.TypeSessionStart,
+			"agent-foreman",
+			fmt.Sprintf("Auto-Attached: %s (%s)", newest.Source, newest.ID[:minInt(8, len(newest.ID))]),
+		).
+			WithRole(events.RoleForeman).
+			WithStation(events.StationForemanDesk).
+			WithSummary(fmt.Sprintf("Tracking live transcript: %s", newest.Path)).
+			WithPayload("source", string(newest.Source)).
+			WithPayload("sessionPath", newest.Path)
+
+		if e.broadcaster != nil {
+			_ = e.broadcaster.BroadcastEvent(startEvt)
+		}
+	}
+	e.mu.Unlock()
+
+	e.readAppendedEvents()
 }
 
 // GetActiveSession returns the currently attached active session if any.

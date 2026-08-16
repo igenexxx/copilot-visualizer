@@ -171,6 +171,53 @@ func TestEngine_CopilotSessionDiscovery(t *testing.T) {
 	}
 }
 
+func TestEngine_InstantFSEventReactivity(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "transcript.jsonl")
+
+	if err := os.WriteFile(logPath, []byte(""), 0o600); err != nil {
+		t.Fatalf("failed to create log file: %v", err)
+	}
+
+	mb := &mockBroadcaster{}
+	engine := autodiscover.NewEngineWithWatchPaths(mb, []string{logPath})
+	// Set heartbeat to 30 seconds to prove events are received immediately via fsnotify
+	engine.SetPollDelay(30 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	engine.StartWatcher(ctx)
+	time.Sleep(30 * time.Millisecond)
+
+	initialCount := mb.Count()
+
+	// Append line
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("failed to open file: %v", err)
+	}
+	_, _ = f.WriteString(`{"step_index":1,"thinking":"Instant reactivity test"}` + "\n")
+	_ = f.Close()
+
+	// Wait only a tiny window for inotify / fsevents to trigger
+	deadline := time.Now().Add(500 * time.Millisecond)
+	received := false
+	for time.Now().Before(deadline) {
+		if mb.Count() > initialCount {
+			received = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	engine.StopWatcher()
+
+	if !received {
+		t.Fatalf("expected instant FS event reception within 500ms, but none received (heartbeat was 30s)")
+	}
+}
+
 func TestEngine_DefaultConstructor(t *testing.T) {
 	mb := &mockBroadcaster{}
 	engine := autodiscover.NewEngine(mb, nil)
