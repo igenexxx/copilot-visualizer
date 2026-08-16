@@ -363,19 +363,17 @@ class App {
         </aside>
       </div>
 
-      <!-- Checkpoint Approval Dialog Modal Container -->
-      <div id="checkpoint-modal" class="checkpoint-overlay" style="display: none;">
-        <div class="checkpoint-card">
-          <div class="checkpoint-header">
-            <span>⚠️</span>
-            <span id="cp-modal-title">HUMAN-IN-THE-LOOP CHECKPOINT</span>
+      <!-- Non-blocking Terminal Confirmation Snackbar -->
+      <div id="terminal-confirmation-snackbar" class="terminal-snackbar" style="display: none;">
+        <div class="terminal-snackbar-icon">⏳</div>
+        <div class="terminal-snackbar-content">
+          <div class="terminal-snackbar-title">
+            <span>Awaiting Terminal Confirmation</span>
+            <span class="terminal-snackbar-tag">CONFIRM IN TERMINAL</span>
           </div>
-          <div id="cp-modal-desc" class="checkpoint-desc"></div>
-          <div class="checkpoint-actions">
-            <button id="btn-cp-reject" class="btn-reject">❌ Reject Action</button>
-            <button id="btn-cp-approve" class="btn-approve">✅ Approve & Execute</button>
-          </div>
+          <div id="terminal-snackbar-desc" class="terminal-snackbar-desc">Copilot CLI is requesting permission in your terminal session...</div>
         </div>
+        <button id="btn-terminal-snackbar-close" class="terminal-snackbar-close" title="Dismiss">✕</button>
       </div>
 
       <!-- Side-by-Side Code Diff Modal -->
@@ -874,6 +872,12 @@ class App {
       feed.innerHTML = '';
       document.getElementById('stream-count')!.textContent = '0 events';
     });
+
+    // Terminal confirmation snackbar close button
+    const btnSnackClose = document.getElementById('btn-terminal-snackbar-close');
+    btnSnackClose?.addEventListener('click', () => {
+      this.hideConfirmationSnackbar();
+    });
   }
 
   private seekToEventIndex(index: number): void {
@@ -1113,7 +1117,8 @@ class App {
       this.seenEventIds.clear();
       this.currentPlaybackIndex = -1;
 
-      // 3. Clear event feed UI
+      // 3. Clear event feed UI & snackbars
+      this.hideConfirmationSnackbar();
       const feed = document.getElementById('feed-pane');
       if (feed) feed.innerHTML = '';
       const streamCount = document.getElementById('stream-count');
@@ -1296,9 +1301,12 @@ class App {
       document.getElementById('estop-label')!.textContent = this.emergencyStopActive ? 'BRAKE ACTIVE (LIFT)' : 'E-STOP BRAKE';
     }
 
-    // Handle Checkpoint Approval Prompt Modal (live only)
-    if (event.type === 'checkpoint.request' && !effectiveIsHistory) {
-      this.showCheckpointModal(event);
+    // Handle Checkpoint / Permission Confirmation Prompt (live only)
+    if ((event.type === 'checkpoint.request' || event.type === 'permission.requested') && !effectiveIsHistory) {
+      this.showConfirmationSnackbar(event);
+    } else if (event.type !== 'checkpoint.request' && event.type !== 'permission.requested' && !effectiveIsHistory) {
+      // Automatically dismiss confirmation snackbar once subsequent events arrive
+      this.hideConfirmationSnackbar();
     }
 
     // Update stats & RPG & Tokenomics
@@ -1340,7 +1348,7 @@ class App {
         if (event.type === 'file.write') this.soundscape.playLaserCut();
         else if (event.type === 'agent.think') this.soundscape.playThinkClick();
         else if (event.type === 'mcp.call') this.soundscape.playPhoneRing();
-        else if (event.type === 'intervention.prompt') this.soundscape.playIntercom();
+        else if (event.type === 'intervention.prompt' || event.type === 'checkpoint.request' || event.type === 'permission.requested') this.soundscape.playIntercom();
         else if (event.type === 'command.run') this.soundscape.playTestRun(true);
         else if (event.type === 'emergency.stop') this.soundscape.playEmergencyStop();
       }
@@ -1359,27 +1367,21 @@ class App {
     this.appendFeedItem(event);
   }
 
-  private showCheckpointModal(event: VisualizerEvent): void {
-    const modal = document.getElementById('checkpoint-modal')!;
-    const descEl = document.getElementById('cp-modal-desc')!;
-    const btnApprove = document.getElementById('btn-cp-approve')!;
-    const btnReject = document.getElementById('btn-cp-reject')!;
+  private showConfirmationSnackbar(event: VisualizerEvent): void {
+    const snackbar = document.getElementById('terminal-confirmation-snackbar');
+    const descEl = document.getElementById('terminal-snackbar-desc');
+    if (!snackbar || !descEl) return;
 
-    const cpId = event.payload?.checkpointId || event.id;
-    const actionDesc = event.summary || event.title;
-
+    const actionDesc = event.summary || event.title || 'Copilot CLI is requesting permission in your terminal session.';
     descEl.textContent = actionDesc;
-    modal.style.display = 'flex';
+    snackbar.style.display = 'flex';
+  }
 
-    btnApprove.onclick = async () => {
-      await this.client.respondCheckpoint(cpId, 'APPROVED', 'Developer manually approved via UI checkpoint');
-      modal.style.display = 'none';
-    };
-
-    btnReject.onclick = async () => {
-      await this.client.respondCheckpoint(cpId, 'REJECTED', 'Developer rejected operation');
-      modal.style.display = 'none';
-    };
+  private hideConfirmationSnackbar(): void {
+    const snackbar = document.getElementById('terminal-confirmation-snackbar');
+    if (snackbar && snackbar.style.display !== 'none') {
+      snackbar.style.display = 'none';
+    }
   }
 
   private scheduleUIRefresh(): void {

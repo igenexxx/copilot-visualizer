@@ -1434,77 +1434,104 @@ canvas {
   -webkit-box-orient: vertical;
 }
 
-/* Checkpoint Modal Dialog */
-.checkpoint-overlay {
+/* Non-blocking Terminal Confirmation Snackbar */
+.terminal-snackbar {
   position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
+  top: 60px;
+  right: 24px;
+  max-width: 480px;
+  background: rgba(19, 27, 38, 0.95);
+  border: 1px solid var(--accent-amber);
+  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.35);
+  backdrop-filter: blur(8px);
+  border-radius: 8px;
+  padding: 12px 14px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 2000;
+  align-items: flex-start;
+  gap: 12px;
+  z-index: 1500;
+  animation: slide-in-snackbar 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s ease;
 }
 
-.checkpoint-card {
-  width: 440px;
-  background: #131b26;
-  border: 1px solid var(--accent-ruby);
-  box-shadow: 0 0 24px rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
-  padding: 20px;
+@keyframes slide-in-snackbar {
+  from {
+    transform: translateY(-20px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.terminal-snackbar-icon {
+  font-size: 20px;
+  line-height: 1;
+  animation: pulse-snackbar 1.5s infinite;
+}
+
+@keyframes pulse-snackbar {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+.terminal-snackbar-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
 }
 
-.checkpoint-header {
+.terminal-snackbar-title {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  color: #fca5a5;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
+  color: #fbbf24;
 }
 
-.checkpoint-desc {
-  font-size: 12px;
-  color: var(--text-primary);
-  line-height: 1.4;
-  background: #0d141e;
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-subtle);
+.terminal-snackbar-tag {
+  font-size: 9px;
   font-family: var(--font-mono);
+  font-weight: 800;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
 }
 
-.checkpoint-actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 6px;
+.terminal-snackbar-desc {
+  font-size: 11px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  word-break: break-all;
+  max-height: 80px;
+  overflow-y: auto;
 }
 
-.btn-approve {
-  background: var(--accent-emerald);
-  color: #000;
-  font-weight: 700;
+.terminal-snackbar-close {
+  background: transparent;
   border: none;
-  padding: 8px 14px;
-  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 14px;
   cursor: pointer;
-  font-size: 12px;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
 }
 
-.btn-reject {
-  background: var(--accent-ruby);
+.terminal-snackbar-close:hover {
   color: #fff;
-  font-weight: 700;
-  border: none;
-  padding: 8px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
 }
 
 /* Event Types Badges */
