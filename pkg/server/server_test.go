@@ -286,4 +286,40 @@ func TestServer_SessionState(t *testing.T) {
 	}
 }
 
+func TestServer_CopilotUsage(t *testing.T) {
+	srv, _, _, _, _, _ := setupTestServer(t)
+
+	// 1. Missing session ID
+	req := httptest.NewRequest(http.MethodGet, "/api/copilot/usage", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request on empty session ID, got %d", rec.Code)
+	}
+
+	// 2. Disallowed method
+	postReq := httptest.NewRequest(http.MethodPost, "/api/copilot/usage?id=s1", nil)
+	postRec := httptest.NewRecorder()
+	srv.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed, got %d", postRec.Code)
+	}
+
+	// 3. Valid GET
+	validReq := httptest.NewRequest(http.MethodGet, "/api/copilot/usage?id=f6cc59be-7d6f-48c3-880a-7398dbbeac5a", nil)
+	validRec := httptest.NewRecorder()
+	srv.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", validRec.Code)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(validRec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode usage response: %v", err)
+	}
+	if resp["sessionId"] != "f6cc59be-7d6f-48c3-880a-7398dbbeac5a" {
+		t.Errorf("expected sessionId f6cc59be-7d6f-48c3-880a-7398dbbeac5a, got %v", resp["sessionId"])
+	}
+}
+
 

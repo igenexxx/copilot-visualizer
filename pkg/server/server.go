@@ -2,11 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strconv"
 
 	"github.com/zhenya/copilot-visualizer/pkg/autodiscover"
+	"github.com/zhenya/copilot-visualizer/pkg/copilotstore"
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
@@ -24,6 +26,7 @@ type Server struct {
 	intervention *intervention.Manager
 	recorder     *recorder.Recorder
 	sessionStore *sessionstore.Store
+	copilotStore *copilotstore.Reader
 	mux          *http.ServeMux
 	staticFS     fs.FS
 }
@@ -45,6 +48,7 @@ func NewServer(
 		intervention: interv,
 		recorder:     rec,
 		sessionStore: store,
+		copilotStore: copilotstore.NewReader(""),
 		mux:          http.NewServeMux(),
 		staticFS:     staticFS,
 	}
@@ -60,6 +64,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/sessions", s.handleSessions)
 	s.mux.HandleFunc("/api/sessions/attach", s.handleSessionAttach)
 	s.mux.HandleFunc("/api/sessions/state", s.handleSessionState)
+	s.mux.HandleFunc("/api/copilot/usage", s.handleCopilotUsage)
 	s.mux.HandleFunc("/api/simulator/start", s.handleSimStart)
 	s.mux.HandleFunc("/api/simulator/stop", s.handleSimStop)
 	s.mux.HandleFunc("/api/simulator/speed", s.handleSimSpeed)
@@ -475,6 +480,54 @@ func (s *Server) handleSessionState(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+}
+
+func (s *Server) handleCopilotUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID := r.URL.Query().Get("id")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("sessionId")
+	}
+	if sessionID == "" && s.engine != nil {
+		if active := s.engine.GetActiveSession(); active != nil {
+			sessionID = active.ID
+		}
+	}
+
+	if sessionID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if s.copilotStore == nil || !s.copilotStore.Exists() {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"available": false,
+			"sessionId": sessionID,
+			"message":   "copilot session-store.db not found",
+		})
+		return
+	}
+
+	usage, err := s.copilotStore.GetSessionUsage(sessionID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to query copilot usage: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	meta, _ := s.copilotStore.GetSessionMetadata(sessionID)
+
+	resp := map[string]any{
+		"available": true,
+		"sessionId": sessionID,
+		"usage":     usage,
+		"metadata":  meta,
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 
