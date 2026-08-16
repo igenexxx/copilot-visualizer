@@ -1471,8 +1471,27 @@ class App {
 
     const st = this.workshopCanvas.getStation(event.station);
     const isOverheated = st ? (st.overheating || st.heatLevel >= 70) : false;
-    this.rpg.handleEvent(event, effectiveIsHistory, isOverheated);
+    const rpgRes = this.rpg.handleEvent(event, effectiveIsHistory, isOverheated);
     this.tokenomics.handleEvent(event);
+
+    // Spawn floating numbers over active worker for Mana / Thermal Damage (LIVE ONLY)
+    if (!effectiveIsHistory && rpgRes) {
+      const activeFloor = this.workshopCanvas.floors[this.workshopCanvas.activeFloorIndex] || this.workshopCanvas.floors[0];
+      if (activeFloor) {
+        let worker = activeFloor.workers.get(event.agentId || '');
+        if (!worker) {
+          worker = activeFloor.workers.values().next().value;
+        }
+        if (worker) {
+          if (rpgRes.manaSpent > 0) {
+            this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-${rpgRes.manaSpent} MP`, '#38bdf8');
+          }
+          if (isOverheated) {
+            this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-8 HP 🔥`, '#ef4444');
+          }
+        }
+      }
+    }
 
     // Cognitive Classification Dispatch (HUD alerts)
     this.pendingLoopStatus = this.loopDetector.processEvent(event);
@@ -1808,7 +1827,15 @@ class App {
     };
 
     this.workshopCanvas.onOverheatTick = (overheatedCount) => {
-      this.rpg.applyOverheatDamage(overheatedCount);
+      const dmg = this.rpg.applyOverheatDamage(overheatedCount);
+      if (dmg > 0 && !this.isInitialLoading) {
+        const activeFloor = this.workshopCanvas.floors[this.workshopCanvas.activeFloorIndex] || this.workshopCanvas.floors[0];
+        if (activeFloor) {
+          for (const worker of activeFloor.workers.values()) {
+            this.workshopCanvas.spawnFloatingNumber(worker.x, worker.y, activeFloor.level, `-${dmg} HP 🔥`, '#ef4444');
+          }
+        }
+      }
     };
   }
 

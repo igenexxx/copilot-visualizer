@@ -50,6 +50,19 @@ export interface WorkerTrailPoint {
   createdAt: number;
 }
 
+export interface FloatingNumber {
+  text: string;
+  x: number;
+  y: number;
+  screenOffsetY: number;
+  floorLevel: number;
+  color: string;
+  scale: number;
+  alpha: number;
+  life: number;
+  decay: number;
+}
+
 export class WorkshopCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -75,6 +88,7 @@ export class WorkshopCanvas {
   private elevatorTargetLevel = 0;
   private flyingReports: FlyingReport[] = [];
   private workerTrails: WorkerTrailPoint[] = [];
+  private floatingNumbers: FloatingNumber[] = [];
 
   public selectedStation: StationType | null = null;
   public selectedAgent: string | null = null;
@@ -839,6 +853,22 @@ export class WorkshopCanvas {
       }
     }
 
+    // 5.5. Update floating damage, mana & XP numbers (lightweight upward float and alpha decay)
+    for (let i = this.floatingNumbers.length - 1; i >= 0; i--) {
+      const fn = this.floatingNumbers[i];
+      fn.life -= fn.decay;
+      fn.screenOffsetY -= 0.65 * this.zoom;
+      if (fn.scale > 1.0) {
+        fn.scale = Math.max(1.0, fn.scale - 0.03);
+      }
+      if (fn.life < 0.35) {
+        fn.alpha = fn.life / 0.35;
+      }
+      if (fn.life <= 0) {
+        this.floatingNumbers.splice(i, 1);
+      }
+    }
+
     // 6. Mechanical station animations (non-intrusive: only animate when actively in use!)
     let isRadarActive = false;
     let isConveyorActive = false;
@@ -1025,6 +1055,9 @@ export class WorkshopCanvas {
     for (const worker of fl.workers.values()) {
       this.renderWorker(worker, fl.level);
     }
+
+    // Render Floating Damage, Mana & XP Numbers on this floor
+    this.renderFloatingNumbers(fl.level);
   }
 
   private renderFloorCables(fl: FactoryFloor): void {
@@ -2139,6 +2172,73 @@ export class WorkshopCanvas {
         }
       }
     }
+  }
+
+  public spawnFloatingNumber(
+    gridX: number,
+    gridY: number,
+    floorLevel: number,
+    text: string,
+    color: string = '#38bdf8'
+  ): void {
+    if (this.floatingNumbers.length >= 30) {
+      this.floatingNumbers.shift();
+    }
+    this.floatingNumbers.push({
+      text,
+      x: gridX,
+      y: gridY,
+      screenOffsetY: -16 * this.zoom,
+      floorLevel,
+      color,
+      scale: 1.35,
+      alpha: 1.0,
+      life: 1.0,
+      decay: 0.016, // ~60 frames = 1.0 second
+    });
+  }
+
+  private renderFloatingNumbers(floorLevel: number): void {
+    if (this.floatingNumbers.length === 0) return;
+    const ctx = this.ctx;
+    const z = this.zoom;
+
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    for (const fn of this.floatingNumbers) {
+      if (fn.floorLevel !== floorLevel) continue;
+      const pos = this.isoToScreen(fn.x, fn.y, floorLevel);
+      const px = pos.x;
+      const py = pos.y + fn.screenOffsetY;
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, Math.min(1, fn.alpha));
+      ctx.translate(px, py);
+      ctx.scale(fn.scale, fn.scale);
+
+      const fontSize = Math.max(8, Math.round(11 * z));
+      ctx.font = `900 ${fontSize}px Inter, monospace`;
+
+      // Dark background stroke for high-contrast visibility against floors
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+      ctx.shadowBlur = 4 * z;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 1 * z;
+
+      ctx.strokeStyle = 'rgba(10, 15, 25, 0.95)';
+      ctx.lineWidth = 3.2 * z;
+      ctx.strokeText(fn.text, 0, 0);
+
+      // Inner vibrant colored text
+      ctx.fillStyle = fn.color;
+      ctx.fillText(fn.text, 0, 0);
+
+      ctx.restore();
+    }
+
+    ctx.restore();
   }
 
   public getStation(stationType?: string): Workstation | undefined {
