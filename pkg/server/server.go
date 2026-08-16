@@ -69,6 +69,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/sessions/state", s.handleSessionState)
 	s.mux.HandleFunc("/api/copilot/usage", s.handleCopilotUsage)
 	s.mux.HandleFunc("/api/enrichment/usage", s.handleEnrichmentUsage)
+	s.mux.HandleFunc("/api/enrichment/context", s.handleEnrichmentContext)
 	s.mux.HandleFunc("/api/enrichment/all", s.handleEnrichmentAll)
 	s.mux.HandleFunc("/api/simulator/start", s.handleSimStart)
 	s.mux.HandleFunc("/api/simulator/stop", s.handleSimStop)
@@ -587,6 +588,42 @@ func (s *Server) handleEnrichmentAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = json.NewEncoder(w).Encode(s.enricher.GetAllUsage())
+}
+
+func (s *Server) handleEnrichmentContext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionID := r.URL.Query().Get("id")
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("sessionId")
+	}
+	if sessionID == "" && s.engine != nil {
+		if active := s.engine.GetActiveSession(); active != nil {
+			sessionID = active.ID
+		}
+	}
+
+	if sessionID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if s.enricher == nil {
+		http.Error(w, "Enricher not initialized", http.StatusInternalServerError)
+		return
+	}
+
+	sCtx := s.enricher.GetContext(sessionID)
+	if sCtx == nil {
+		http.Error(w, "Session context not found", http.StatusNotFound)
+		return
+	}
+
+	_ = json.NewEncoder(w).Encode(sCtx)
 }
 
 

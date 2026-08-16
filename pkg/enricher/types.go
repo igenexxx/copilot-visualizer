@@ -30,6 +30,58 @@ type SessionMetadata struct {
 	UpdatedAt  string `json:"updatedAt"`
 }
 
+// SkillItem represents a registered or active agent skill.
+type SkillItem struct {
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	Path             string `json:"path"`
+	Icon             string `json:"icon"`
+	Category         string `json:"category"`
+	Active           bool   `json:"active"`
+	ActivationsCount int    `json:"activationsCount"`
+	LastUsed         int64  `json:"lastUsed"`
+}
+
+// MCPServerItem represents a registered MCP server and its tool schemas.
+type MCPServerItem struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	ToolsCount int      `json:"toolsCount"`
+	Tools      []string `json:"tools"`
+	Icon       string   `json:"icon"`
+	Active     bool     `json:"active"`
+	CallsCount int      `json:"callsCount"`
+	LastUsed   int64    `json:"lastUsed"`
+}
+
+// RuleItem represents user instructions, governance rules, or project memories.
+type RuleItem struct {
+	ID      string `json:"id"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+	Type    string `json:"type"` // "global", "project", "memory"
+	Icon    string `json:"icon"`
+}
+
+// SlashCommandItem represents a slash command available to the agent session.
+type SlashCommandItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Icon        string `json:"icon"`
+}
+
+// SessionContext represents the complete capability inventory of an AI session.
+type SessionContext struct {
+	SessionID     string             `json:"sessionId"`
+	Provider      string             `json:"provider"`
+	Skills        []SkillItem        `json:"skills"`
+	MCPServers    []MCPServerItem    `json:"mcpServers"`
+	Rules         []RuleItem         `json:"rules"`
+	SlashCommands []SlashCommandItem `json:"slashCommands"`
+	UpdatedAt     int64              `json:"updatedAt"`
+}
+
 // ProviderEnricher is the interface implemented by each AI client telemetry source.
 type ProviderEnricher interface {
 	ID() string
@@ -38,4 +90,5 @@ type ProviderEnricher interface {
 	CanEnrich(sessionID string) bool
 	EnrichUsage(sessionID string) (*UsageSummary, error)
 	EnrichMetadata(sessionID string) (*SessionMetadata, error)
+	EnrichContext(sessionID string) (*SessionContext, error)
 }

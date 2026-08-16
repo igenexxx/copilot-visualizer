@@ -356,6 +356,14 @@ func TestServer_EnrichmentEndpoints(t *testing.T) {
 	if allRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK on /api/enrichment/all, got %d", allRec.Code)
 	}
+
+	// 5. GET /api/enrichment/context
+	ctxReq := httptest.NewRequest(http.MethodGet, "/api/enrichment/context?id=sess-enrich-1", nil)
+	ctxRec := httptest.NewRecorder()
+	srv.ServeHTTP(ctxRec, ctxReq)
+	if ctxRec.Code != http.StatusOK && ctxRec.Code != http.StatusNotFound {
+		t.Fatalf("unexpected code on /api/enrichment/context, got %d", ctxRec.Code)
+	}
 }
 
 

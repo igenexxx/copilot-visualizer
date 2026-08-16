@@ -88,3 +88,61 @@ func (c *CopilotEnricher) EnrichMetadata(sessionID string) (*SessionMetadata, er
 		UpdatedAt:  m.UpdatedAt,
 	}, nil
 }
+
+func (c *CopilotEnricher) EnrichContext(sessionID string) (*SessionContext, error) {
+	ctx := &SessionContext{
+		SessionID:     sessionID,
+		Provider:      "copilot_cli",
+		Skills:        make([]SkillItem, 0),
+		MCPServers:    make([]MCPServerItem, 0),
+		Rules:         make([]RuleItem, 0),
+		SlashCommands: make([]SlashCommandItem, 0),
+		UpdatedAt:     0,
+	}
+
+	// 1. Built-in Core Capabilities (Tools / Skills)
+	tools := []struct {
+		id   string
+		name string
+		desc string
+		icon string
+		cat  string
+	}{
+		{"view", "File Inspector", "Reads and inspects code files with token truncation", "🔍", "inspector"},
+		{"rg", "Ripgrep Search", "Fast pattern matching across repository tree", "⚡", "search"},
+		{"edit", "Code Refactor", "Applies surgical multi-line code modifications", "🛠️", "crafter"},
+		{"bash", "Terminal Sandbox", "Executes build, test, and container shell commands", "🧪", "tester"},
+		{"glob", "File Globbing", "Finds file paths matching wildcards", "📁", "inspector"},
+	}
+
+	for _, t := range tools {
+		ctx.Skills = append(ctx.Skills, SkillItem{
+			ID:          t.id,
+			Name:        t.name,
+			Description: t.desc,
+			Path:        "copilot-builtin://" + t.id,
+			Icon:        t.icon,
+			Category:    t.cat,
+			Active:      true,
+		})
+	}
+
+	// 2. Rules & Instructions
+	ctx.Rules = append(ctx.Rules, RuleItem{
+		ID:      "copilot_instructions",
+		Title:   "Copilot Workspace Instructions",
+		Content: "Custom instructions defined in .github/copilot-instructions.md and workspace configuration.",
+		Type:    "project",
+		Icon:    "📜",
+	})
+
+	// 3. Slash Commands
+	ctx.SlashCommands = []SlashCommandItem{
+		{Name: "/help", Description: "Show available commands and usage guide", Icon: "❓"},
+		{Name: "/model", Description: "Switch reasoning engine model (e.g. gpt-5.6-terra, o3-mini)", Icon: "🤖"},
+		{Name: "/clear", Description: "Clear active conversation history", Icon: "🗑️"},
+		{Name: "/compact", Description: "Compact active context window turns", Icon: "📦"},
+	}
+
+	return ctx, nil
+}

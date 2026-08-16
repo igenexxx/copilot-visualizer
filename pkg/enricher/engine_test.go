@@ -149,8 +149,63 @@ func TestEngine_Concurrency(t *testing.T) {
 			engine.AttachSession(sess)
 			_ = engine.GetUsage(sess)
 			_ = engine.GetMetadata(sess)
+			_ = engine.GetContext(sess)
 			_ = engine.GetAllUsage()
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestEnrichContext_AntigravityAndCopilot(t *testing.T) {
+	dir := t.TempDir()
+	sessionID := "sess-test-ctx"
+
+	// Create a dummy skill
+	skillDir := filepath.Join(dir, "config", "skills", "test-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill failed: %v", err)
+	}
+	skillContent := "---\nname: test-skill\ndescription: Test capability\n---\n# Test"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillContent), 0o600); err != nil {
+		t.Fatalf("write skill failed: %v", err)
+	}
+
+	// Create dummy transcript activating the skill
+	brainLogsDir := filepath.Join(dir, "antigravity-cli", "brain", sessionID, ".system_generated", "logs")
+	if err := os.MkdirAll(brainLogsDir, 0o755); err != nil {
+		t.Fatalf("mkdir brain failed: %v", err)
+	}
+	transcriptPath := filepath.Join(brainLogsDir, "transcript.jsonl")
+	transcriptContent := `{"step_index":0,"source":"MODEL","type":"PLANNER_RESPONSE","tool_calls":[{"name":"view_file","args":{"AbsolutePath":"/tmp/skills/test-skill/SKILL.md"}}]}` + "\n"
+	if err := os.WriteFile(transcriptPath, []byte(transcriptContent), 0o600); err != nil {
+		t.Fatalf("write transcript failed: %v", err)
+	}
+
+	a := enricher.NewAntigravityEnricher(dir)
+	ctx, err := a.EnrichContext(sessionID)
+	if err != nil {
+		t.Fatalf("EnrichContext failed: %v", err)
+	}
+	var testSkill *enricher.SkillItem
+	for i := range ctx.Skills {
+		if ctx.Skills[i].ID == "test-skill" {
+			testSkill = &ctx.Skills[i]
+			break
+		}
+	}
+	if testSkill == nil {
+		t.Fatalf("expected test-skill to be found in ctx.Skills")
+	}
+	if !testSkill.Active {
+		t.Errorf("expected test-skill to be active from transcript")
+	}
+
+	c := enricher.NewCopilotEnricher("")
+	cCtx, err := c.EnrichContext("cpt-sess")
+	if err != nil {
+		t.Fatalf("Copilot EnrichContext failed: %v", err)
+	}
+	if len(cCtx.Skills) == 0 {
+		t.Errorf("expected built-in copilot skills")
+	}
 }

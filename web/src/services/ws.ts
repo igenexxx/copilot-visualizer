@@ -206,6 +206,19 @@ export class VisualizerClient {
     return null;
   }
 
+  public async fetchSessionContext(sessionId: string): Promise<any | null> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/enrichment/context?id=${encodeURIComponent(sessionId)}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed to fetch session context capabilities:', e);
+    }
+    return null;
+  }
+
   public async fetchSessionState(sessionId: string): Promise<any | null> {
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {

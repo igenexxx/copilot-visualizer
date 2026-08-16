@@ -22,6 +22,7 @@ type Engine struct {
 	watchedPaths   map[string]bool
 	cacheUsage     map[string]*UsageSummary
 	cacheMeta      map[string]*SessionMetadata
+	cacheContext   map[string]*SessionContext
 	activeSession  string
 	debounceTimers map[string]*time.Timer
 	cancelFunc     context.CancelFunc
@@ -35,6 +36,7 @@ func NewEngine(h *hub.Hub) *Engine {
 		watchedPaths:   make(map[string]bool),
 		cacheUsage:     make(map[string]*UsageSummary),
 		cacheMeta:      make(map[string]*SessionMetadata),
+		cacheContext:   make(map[string]*SessionContext),
 		debounceTimers: make(map[string]*time.Timer),
 		providers: []ProviderEnricher{
 			NewCopilotEnricher(""),
@@ -205,6 +207,13 @@ func (e *Engine) RefreshSession(sessionID string) {
 				e.cacheMeta[sessionID] = meta
 				e.mu.Unlock()
 			}
+
+			sCtx, err := p.EnrichContext(sessionID)
+			if err == nil && sCtx != nil {
+				e.mu.Lock()
+				e.cacheContext[sessionID] = sCtx
+				e.mu.Unlock()
+			}
 			return
 		}
 	}
@@ -228,6 +237,37 @@ func (e *Engine) GetMetadata(sessionID string) *SessionMetadata {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.cacheMeta[sessionID]
+}
+
+// GetContext returns cached session inventory and capability context with O(1) in-memory lookup.
+func (e *Engine) GetContext(sessionID string) *SessionContext {
+	if sessionID == "" {
+		return nil
+	}
+	e.mu.RLock()
+	sCtx, exists := e.cacheContext[sessionID]
+	e.mu.RUnlock()
+	if exists && sCtx != nil {
+		return sCtx
+	}
+
+	// On-demand enrichment if not in cache yet
+	e.mu.RLock()
+	providers := append([]ProviderEnricher(nil), e.providers...)
+	e.mu.RUnlock()
+
+	for _, p := range providers {
+		if p.CanEnrich(sessionID) {
+			ctx, err := p.EnrichContext(sessionID)
+			if err == nil && ctx != nil {
+				e.mu.Lock()
+				e.cacheContext[sessionID] = ctx
+				e.mu.Unlock()
+				return ctx
+			}
+		}
+	}
+	return nil
 }
 
 // GetAllUsage returns all cached session usages.

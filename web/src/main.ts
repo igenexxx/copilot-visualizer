@@ -15,6 +15,7 @@ import { BlastRadiusEngine } from './analytics/blast_radius';
 import { WaterfallTimelineEngine } from './analytics/waterfall_timeline';
 import { CognitiveHUD } from './ui/cognitive_hud';
 import { MissionControlPanel } from './ui/mission_control';
+import { InventoryModal } from './ui/inventory';
 import { getProviderIcon, getProviderLabel, getProviderColor } from './ui/icons';
 
 class App {
@@ -24,6 +25,7 @@ class App {
   private rpg: RPGEngine;
   private tokenomics: TokenomicsTracker;
   private soundscape: SoundscapeEngine;
+  private inventoryModal!: InventoryModal;
 
   // Intelligence & Mission Control Analytics
   private loopDetector = new LoopDetectorEngine();
@@ -74,6 +76,7 @@ class App {
     this.rpg = new RPGEngine();
     this.tokenomics = new TokenomicsTracker();
     this.soundscape = new SoundscapeEngine();
+    this.inventoryModal = new InventoryModal();
     this.initDOM();
     this.initCanvases();
     this.initAnalytics();
@@ -258,6 +261,7 @@ class App {
                   </div>
                 </div>
               </div>
+              <button id="btn-open-inventory" class="btn-rpg-inventory" title="Open Agent Capabilities Inventory [I]">🎒 Capabilities Inventory [I]</button>
             </div>
           </div>
 
@@ -855,6 +859,19 @@ class App {
       });
     });
 
+    // Inventory Modal Toggle
+    document.getElementById('btn-open-inventory')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.inventoryModal.toggle();
+    });
+
+    document.querySelector('.rpg-card')?.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target && target.tagName !== 'BUTTON' && !target.closest('button')) {
+        this.inventoryModal.toggle();
+      }
+    });
+
     // Simulation toggle
     const btnSim = document.getElementById('btn-sim-toggle')!;
     btnSim.addEventListener('click', async () => {
@@ -1100,10 +1117,20 @@ class App {
         if (enrichment && enrichment.usage) {
           this.tokenomics.syncFromEnrichment(enrichment.usage);
         }
+
+        const sCtx = await this.client.fetchSessionContext(active.id);
+        if (sCtx) {
+          this.inventoryModal.setContext(sCtx);
+        }
       } else {
         this.updateSessionBadgeUI('antigravity');
         const history = await this.client.fetchHistory();
         history.forEach((evt) => this.handleIncomingEvent(evt, true));
+
+        const sCtx = await this.client.fetchSessionContext('global');
+        if (sCtx) {
+          this.inventoryModal.setContext(sCtx);
+        }
       }
     } finally {
       this.isInitialLoading = false;
@@ -1274,6 +1301,12 @@ class App {
           active: true,
           model: enrichment.usage ? enrichment.usage.model : undefined,
         });
+      }
+
+      // 12. Fetch session capabilities context & active skills inventory
+      const sCtx = await this.client.fetchSessionContext(sessionId);
+      if (sCtx) {
+        this.inventoryModal.setContext(sCtx);
       }
     } finally {
       this.isSwitchingSession = false;
@@ -1466,14 +1499,26 @@ class App {
       this.workshopCanvas.handleEvent(event, effectiveIsHistory);
       this.graphCanvas.handleEvent(event, effectiveIsHistory);
 
-      // Web Audio Soundscape Dispatch (LIVE ONLY)
+      // Web Audio Soundscape & Live Skill Banner Dispatch (LIVE ONLY)
       if (!effectiveIsHistory) {
         if (event.type === 'file.write') this.soundscape.playLaserCut();
         else if (event.type === 'agent.think') this.soundscape.playThinkClick();
-        else if (event.type === 'mcp.call') this.soundscape.playPhoneRing();
+        else if (event.type === 'mcp.call') {
+          this.soundscape.playPhoneRing();
+          const serverName = (event.payload?.server || event.payload?.serverName || event.title) as string;
+          this.inventoryModal.showActiveSkillBanner(serverName || 'MCP Protocol Tool', '🔌', 'Executing external MCP toolchain');
+        }
         else if (event.type === 'intervention.prompt' || event.type === 'checkpoint.request' || event.type === 'permission.requested') this.soundscape.playIntercom();
         else if (event.type === 'command.run') this.soundscape.playTestRun(true);
         else if (event.type === 'emergency.stop') this.soundscape.playEmergencyStop();
+        else if (event.type === 'file.read') {
+          const filePath = ((event.payload?.file || event.payload?.path || event.payload?.targetFile || '') as string);
+          if (filePath.includes('/skills/') || filePath.endsWith('SKILL.md')) {
+            const match = filePath.match(/skills\/([^\/]+)/);
+            const skillName = match ? match[1] : 'Specialization Skill';
+            this.inventoryModal.showActiveSkillBanner(skillName, '🧭', 'Specialization skill activated for task');
+          }
+        }
       }
     }
 

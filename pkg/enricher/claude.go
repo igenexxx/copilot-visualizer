@@ -152,3 +152,81 @@ func (c *ClaudeEnricher) EnrichMetadata(sessionID string) (*SessionMetadata, err
 		Provider:  "claude_code",
 	}, nil
 }
+
+func (c *ClaudeEnricher) EnrichContext(sessionID string) (*SessionContext, error) {
+	ctx := &SessionContext{
+		SessionID:     sessionID,
+		Provider:      "claude_code",
+		Skills:        make([]SkillItem, 0),
+		MCPServers:    make([]MCPServerItem, 0),
+		Rules:         make([]RuleItem, 0),
+		SlashCommands: make([]SlashCommandItem, 0),
+		UpdatedAt:     time.Now().UnixMilli(),
+	}
+
+	// 1. Built-in Tools
+	tools := []struct {
+		id   string
+		name string
+		desc string
+		icon string
+		cat  string
+	}{
+		{"View", "File Viewer", "View file contents with line slices", "🔍", "inspector"},
+		{"Edit", "StrReplace Editor", "Contiguous snippet block replace editor", "🛠️", "crafter"},
+		{"Bash", "Bash Shell", "Terminal execution sandbox", "🧪", "tester"},
+		{"Grep", "Ripgrep Search", "Regex pattern matcher across project tree", "⚡", "search"},
+		{"Glob", "Glob Tool", "File and folder matching pattern finder", "📁", "inspector"},
+	}
+	for _, t := range tools {
+		ctx.Skills = append(ctx.Skills, SkillItem{
+			ID:          t.id,
+			Name:        t.name,
+			Description: t.desc,
+			Path:        "claude-builtin://" + t.id,
+			Icon:        t.icon,
+			Category:    t.cat,
+			Active:      true,
+		})
+	}
+
+	// 2. Discover MCP Servers from ~/.claude/config.json
+	home, _ := os.UserHomeDir()
+	configPath := filepath.Join(home, ".claude", "config.json")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var cfg map[string]any
+		if err := json.Unmarshal(data, &cfg); err == nil {
+			if servers, ok := cfg["mcpServers"].(map[string]any); ok {
+				for sName := range servers {
+					ctx.MCPServers = append(ctx.MCPServers, MCPServerItem{
+						ID:     sName,
+						Name:   sName,
+						Icon:   "🔌",
+						Active: true,
+					})
+				}
+			}
+		}
+	}
+
+	// 3. Rules & Guidelines (CLAUDE.md)
+	ctx.Rules = append(ctx.Rules, RuleItem{
+		ID:      "claude_md",
+		Title:   "Project Instructions (CLAUDE.md)",
+		Content: "Project guidance, code style, and test commands from CLAUDE.md.",
+		Type:    "project",
+		Icon:    "📜",
+	})
+
+	// 4. Slash Commands
+	ctx.SlashCommands = []SlashCommandItem{
+		{Name: "/compact", Description: "Compact conversation history to reclaim context window", Icon: "📦"},
+		{Name: "/cost", Description: "Display token usage statistics and monetary cost", Icon: "💰"},
+		{Name: "/doctor", Description: "Health check for toolchains and environment variables", Icon: "🩺"},
+		{Name: "/help", Description: "List all built-in commands and operational manual", Icon: "❓"},
+		{Name: "/init", Description: "Generate starter CLAUDE.md memory configuration", Icon: "⚡"},
+		{Name: "/review", Description: "Request peer review from LLM reviewer", Icon: "🔍"},
+	}
+
+	return ctx, nil
+}
