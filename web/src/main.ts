@@ -1539,8 +1539,17 @@ class App {
     const descEl = document.getElementById('terminal-snackbar-desc');
     if (!snackbar || !descEl) return;
 
-    const actionDesc = event.summary || event.title || 'Copilot CLI is requesting permission in your terminal session.';
-    descEl.textContent = actionDesc;
+    const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const details = this.getEventToolDetails(event);
+    const actionLabel = details.approvalAction || 'PERMISSION REQUIRED';
+    const cmdText = details.approvalCmd || event.summary || event.title || 'Command execution';
+
+    descEl.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+        <span style="font-weight: 800; font-size: 10px; color: #fbbf24; font-family: var(--font-mono); text-transform: uppercase;">⚠️ ${escape(actionLabel)}</span>
+      </div>
+      <code style="display: block; background: rgba(0, 0, 0, 0.6); padding: 4px 8px; border-radius: 4px; color: #ffffff; font-family: var(--font-mono); font-size: 10px; word-break: break-all; border-left: 2px solid #f59e0b;">${escape(cmdText)}</code>
+    `;
     snackbar.style.display = 'flex';
   }
 
@@ -1548,6 +1557,179 @@ class App {
     const snackbar = document.getElementById('terminal-confirmation-snackbar');
     if (snackbar && snackbar.style.display !== 'none') {
       snackbar.style.display = 'none';
+    }
+  }
+
+  private getEventToolDetails(event: VisualizerEvent): {
+    toolName?: string;
+    toolIcon?: string;
+    toolBadgeClass?: string;
+    command?: string;
+    target?: string;
+    targetIcon?: string;
+    isApproval: boolean;
+    approvalAction?: string;
+    approvalCmd?: string;
+  } {
+    const p = event.payload || {};
+    const rawTool = (p.tool || p.toolName || p.name || p.commandName || '') as string;
+    const cmd = (p.command || p.commandLine || p.cmd || '') as string;
+    const targetFile = (p.targetFile || p.file || p.path || p.filePath || '') as string;
+    const query = (p.query || p.pattern || '') as string;
+    const serverName = (p.server || p.serverName || '') as string;
+
+    const isApproval = event.type === 'checkpoint.request' || event.type === 'permission.requested';
+    if (isApproval) {
+      const actionType = (p.actionType as string) || (cmd ? 'Shell Command' : targetFile ? 'File Edit' : 'Permission Required');
+      const approvalCmd = (cmd || targetFile || event.summary || event.title) as string;
+      return {
+        toolName: 'approval',
+        toolIcon: '⚠️',
+        toolBadgeClass: 'badge-tool-approval',
+        isApproval: true,
+        approvalAction: actionType,
+        approvalCmd: approvalCmd,
+      };
+    }
+
+    let toolName = rawTool;
+    let toolIcon = '⚡';
+    let toolBadgeClass = 'badge-tool-search';
+    let target = '';
+    let targetIcon = '📄';
+
+    if (toolName === 'rg' || toolName === 'grep' || toolName === 'grep_search' || toolName === 'search_web' || (event.type === 'tool.call' && query)) {
+      toolName = toolName || 'rg';
+      toolIcon = '⚡';
+      toolBadgeClass = 'badge-tool-search';
+      target = query ? `"${query}"` : '';
+      targetIcon = '🔎';
+    } else if (toolName === 'view' || toolName === 'cat' || toolName === 'view_file' || toolName === 'read_resource' || toolName === 'list_dir' || toolName === 'glob' || event.type === 'file.read') {
+      toolName = toolName || (targetFile.includes('/') ? 'view' : 'file.read');
+      toolIcon = '🔍';
+      toolBadgeClass = 'badge-tool-read';
+      target = targetFile ? (targetFile.length > 36 ? '…' + targetFile.slice(-32) : targetFile) : '';
+      targetIcon = '📄';
+    } else if (toolName === 'edit' || toolName === 'replace_file_content' || toolName === 'write_to_file' || toolName === 'patch' || event.type === 'file.write') {
+      toolName = toolName || 'edit';
+      toolIcon = '🛠️';
+      toolBadgeClass = 'badge-tool-write';
+      target = targetFile ? (targetFile.length > 36 ? '…' + targetFile.slice(-32) : targetFile) : '';
+      targetIcon = '📝';
+    } else if (toolName === 'bash' || toolName === 'run_command' || toolName === 'exec' || event.type === 'command.run') {
+      toolName = toolName || 'bash';
+      toolIcon = '🧪';
+      toolBadgeClass = 'badge-tool-exec';
+    } else if (event.type === 'mcp.call' || toolName === 'call_mcp_tool' || serverName) {
+      toolName = serverName ? `mcp:${serverName}` : 'mcp';
+      toolIcon = '🔌';
+      toolBadgeClass = 'badge-tool-mcp';
+      target = (p.toolName as string) || '';
+      targetIcon = '⚙️';
+    }
+
+    return {
+      toolName,
+      toolIcon,
+      toolBadgeClass,
+      command: cmd,
+      target,
+      targetIcon,
+      isApproval: false,
+    };
+  }
+
+  private appendFeedItem(event: VisualizerEvent): void {
+    const feed = document.getElementById('feed-pane')!;
+    const item = document.createElement('div');
+
+    const details = this.getEventToolDetails(event);
+    item.className = `feed-item ${details.isApproval ? 'approval-required' : ''}`;
+
+    let badgeClass = 'badge-think';
+    if (event.type.startsWith('file.write')) badgeClass = 'badge-file-write';
+    else if (event.type.startsWith('file.read')) badgeClass = 'badge-file-read';
+    else if (event.type.startsWith('mcp.')) badgeClass = 'badge-mcp';
+    else if (event.type.startsWith('command.')) badgeClass = 'badge-command';
+    else if (event.type.startsWith('session.')) badgeClass = 'badge-session';
+    else if (event.type === 'checkpoint.request' || event.type === 'checkpoint.decision' || event.type === 'permission.requested') badgeClass = 'badge-checkpoint';
+    else if (event.type === 'intervention.prompt') badgeClass = 'badge-intercom';
+    else if (event.type === 'emergency.stop') badgeClass = 'badge-estop';
+
+    const timeStr = new Date(event.timestamp).toLocaleTimeString([], { hour12: false });
+    const escape = (s: string) => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const safeTitle = escape(event.title || 'Event');
+    const safeSummary = event.summary ? escape(event.summary) : '';
+
+    // Tool badge markup
+    let toolBadgeHtml = '';
+    if (details.toolName) {
+      toolBadgeHtml = `<span class="feed-tool-badge ${details.toolBadgeClass}">${details.toolIcon} ${escape(details.toolName)}</span>`;
+    }
+
+    // Approval box markup
+    let approvalBoxHtml = '';
+    if (details.isApproval) {
+      approvalBoxHtml = `
+        <div class="feed-approval-box">
+          <div class="feed-approval-header">
+            <span>⚠️ PERMISSION REQUIRED</span>
+            <span class="feed-approval-action-badge">${escape(details.approvalAction || 'Action')}</span>
+          </div>
+          <code class="feed-approval-cmd">${escape(details.approvalCmd || 'Command')}</code>
+        </div>
+      `;
+    }
+
+    // Command line tag markup
+    let commandTagHtml = '';
+    if (details.command && !details.isApproval) {
+      commandTagHtml = `
+        <div class="feed-command-tag" title="${escape(details.command)}">
+          <span class="cmd-prompt">$</span>
+          <span class="cmd-text">${escape(details.command)}</span>
+        </div>
+      `;
+    }
+
+    // Target tag markup (file, search pattern, URL)
+    let targetTagHtml = '';
+    if (details.target && !details.command && !details.isApproval) {
+      targetTagHtml = `
+        <div class="feed-target-tag" title="${escape(details.target)}">
+          <span class="target-icon">${details.targetIcon || '📄'}</span>
+          <span class="target-val">${escape(details.target)}</span>
+        </div>
+      `;
+    }
+
+    item.innerHTML = `
+      <div class="feed-item-header">
+        <div class="feed-badge-group">
+          <span class="feed-badge ${badgeClass}">${event.type}</span>
+          ${toolBadgeHtml}
+        </div>
+        <span class="feed-time">${timeStr}</span>
+      </div>
+      ${approvalBoxHtml}
+      <div class="feed-title">${safeTitle}</div>
+      ${commandTagHtml}
+      ${targetTagHtml}
+      ${safeSummary ? `<div class="feed-summary">${safeSummary}</div>` : ''}
+    `;
+
+    item.addEventListener('click', () => {
+      this.renderInspector(`⚡ ${event.title}`, event.summary || event.type, event.payload);
+      if (event.type === 'file.write') {
+        this.openDiffModal(event.title, event.payload?.file, event.payload);
+      }
+    });
+
+    feed.prepend(item);
+
+    while (feed.children.length > 50) {
+      feed.removeChild(feed.lastChild!);
     }
   }
 
@@ -1605,50 +1787,6 @@ class App {
     document.getElementById('hud-files')!.textContent = String(this.stats.filesWritten);
     document.getElementById('hud-mcp')!.textContent = String(this.stats.mcpCalls);
     document.getElementById('stream-count')!.textContent = `${this.allEvents.length} events`;
-  }
-
-  private appendFeedItem(event: VisualizerEvent): void {
-    const feed = document.getElementById('feed-pane')!;
-    const item = document.createElement('div');
-    item.className = 'feed-item';
-
-    let badgeClass = 'badge-think';
-    if (event.type.startsWith('file.write')) badgeClass = 'badge-file-write';
-    else if (event.type.startsWith('file.read')) badgeClass = 'badge-file-read';
-    else if (event.type.startsWith('mcp.')) badgeClass = 'badge-mcp';
-    else if (event.type.startsWith('command.')) badgeClass = 'badge-command';
-    else if (event.type.startsWith('session.')) badgeClass = 'badge-session';
-    else if (event.type === 'checkpoint.request' || event.type === 'checkpoint.decision') badgeClass = 'badge-checkpoint';
-    else if (event.type === 'intervention.prompt') badgeClass = 'badge-intercom';
-    else if (event.type === 'emergency.stop') badgeClass = 'badge-estop';
-
-    const timeStr = new Date(event.timestamp).toLocaleTimeString([], { hour12: false });
-    const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-    const safeTitle = escape(event.title || 'Event');
-    const safeSummary = event.summary ? escape(event.summary) : '';
-
-    item.innerHTML = `
-      <div class="feed-item-header">
-        <span class="feed-badge ${badgeClass}">${event.type}</span>
-        <span class="feed-time">${timeStr}</span>
-      </div>
-      <div class="feed-title">${safeTitle}</div>
-      ${safeSummary ? `<div class="feed-summary">${safeSummary}</div>` : ''}
-    `;
-
-    item.addEventListener('click', () => {
-      this.renderInspector(`⚡ ${event.title}`, event.summary || event.type, event.payload);
-      if (event.type === 'file.write') {
-        this.openDiffModal(event.title, event.payload?.file, event.payload);
-      }
-    });
-
-    feed.prepend(item);
-
-    while (feed.children.length > 50) {
-      feed.removeChild(feed.lastChild!);
-    }
   }
 
   private setupRPG(): void {
