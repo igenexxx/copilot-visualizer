@@ -307,6 +307,13 @@ export class WorkshopCanvas {
     this.canvas.height = rect.height * dpr;
     this.ctx.resetTransform?.();
     this.ctx.scale(dpr, dpr);
+
+    // Clear cached grid paths so they always re-align with new dimensions
+    if (this.floors) {
+      for (const fl of this.floors) {
+        fl.cachedGridKey = '';
+      }
+    }
   }
 
   private onFloorActivity(floorLevel: number, isHistory: boolean): void {
@@ -833,7 +840,7 @@ export class WorkshopCanvas {
   }
 
   private renderSingleFloor(fl: FactoryFloor): void {
-    const gridKey = `${this.zoom.toFixed(4)}_${this.panX.toFixed(1)}_${this.panY.toFixed(1)}_${fl.level}`;
+    const gridKey = `${this.canvas.width}_${this.canvas.height}_${this.zoom.toFixed(4)}_${this.panX.toFixed(1)}_${this.panY.toFixed(1)}_${fl.level}`;
 
     // Floor Base Tile Grid (High performance cached Path2D rendering)
     if (fl.cachedGridKey !== gridKey || !fl.cachedEvenPath || !fl.cachedOddPath || !fl.cachedGridLines) {

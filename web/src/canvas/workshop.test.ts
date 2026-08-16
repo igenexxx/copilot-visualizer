@@ -125,4 +125,13 @@ describe('WorkshopCanvas', () => {
     workshop.setActiveFloor(0);
     expect(workshop.activeFloorIndex).toBe(0);
   });
+
+  it('should reset floor cachedGridKey on resize to prevent elements floating on drawer expansion', () => {
+    const floor = workshop.floors[0];
+    floor.cachedGridKey = '1200_800_0.8500_0.0_0.0_0';
+
+    workshop.resize();
+
+    expect(floor.cachedGridKey).toBe('');
+  });
 });
