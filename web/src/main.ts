@@ -103,54 +103,90 @@ class App {
     const appEl = document.getElementById('app')!;
     appEl.innerHTML = `
       <header class="header">
-        <div class="brand">
-          <span class="brand-icon">🏭</span>
-          <span class="brand-title">COPILOT VISUALIZER</span>
-          <span class="brand-sub">WORKSHOP ENGINE</span>
+        <div class="header-left">
+          <div class="brand">
+            <span class="brand-icon">🏭</span>
+            <div class="brand-title-wrap">
+              <span class="brand-title">COPILOT VISUALIZER</span>
+              <span class="brand-sub">WORKSHOP</span>
+            </div>
+          </div>
+
+          <div class="session-selector-container">
+            <div id="session-badge" class="session-badge" title="Active AI Agent Session">
+              <span class="session-dot"></span>
+              <span id="session-text">SEARCHING SESSIONS...</span>
+            </div>
+            <select id="session-select-dropdown" class="session-dropdown-select" style="display: none;" title="Switch Discovered Session"></select>
+          </div>
         </div>
 
         <div class="header-center">
-          <button id="btn-view-workshop" class="view-btn active">🏭 Workshop Floor</button>
-          <button id="btn-view-graph" class="view-btn">🕸️ Flow Graph</button>
-          <button id="btn-view-split" class="view-btn">⚡ Split Dual</button>
-          <button id="btn-spread-graph" class="view-btn" title="Unfold and neatly organize graph columns">📐 Spread Graph</button>
-          <button id="btn-center-graph" class="view-btn" title="Center & Fit View">🎯 Center View</button>
+          <div class="segmented-control">
+            <button id="btn-view-workshop" class="segmented-btn active" title="Isometric Workshop Floor">🏭 Workshop</button>
+            <button id="btn-view-graph" class="segmented-btn" title="Semantic DAG Flow Graph">🕸️ Flow Graph</button>
+            <button id="btn-view-split" class="segmented-btn" title="Dual Split View">⚡ Split View</button>
+          </div>
         </div>
 
         <div class="header-right">
           <!-- Web Audio Soundscape Control -->
-          <div class="sound-control-group" style="display: flex; align-items: center; gap: 4px; background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-color); padding: 2px 6px; border-radius: 6px;">
-            <button id="btn-sound-toggle" class="control-btn" style="padding: 2px 5px; font-size: 11px;" title="Toggle 8-Bit Audio Soundscape">🔊</button>
-            <input id="sound-vol-slider" type="range" min="0" max="1" step="0.05" value="0.6" style="width: 42px; height: 4px; cursor: pointer;" title="Sound Volume">
+          <div class="sound-control-group" title="8-Bit Audio Soundscape Volume">
+            <button id="btn-sound-toggle" class="sound-btn" title="Toggle Sound">🔊</button>
+            <input id="sound-vol-slider" class="sound-slider" type="range" min="0" max="1" step="0.05" value="0.6" title="Volume">
           </div>
 
-          <button id="btn-estop" class="btn-estop" title="Emergency Stop Lever">
+          <!-- Emergency Stop Lever -->
+          <button id="btn-estop" class="btn-estop" title="Emergency Stop Safety Brake">
             <span>🚨</span>
-            <span id="estop-label">E-STOP BRAKE</span>
+            <span id="estop-label">E-STOP</span>
           </button>
 
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <div id="session-badge" class="session-badge" title="Auto-discovered session">
-              <span class="session-dot"></span>
-              <span id="session-text">SEARCHING SESSIONS...</span>
-            </div>
-            <select id="session-select-dropdown" class="speed-select" style="display: none; font-size: 11px; padding: 3px 6px; max-width: 180px;" title="Switch Discovered Session"></select>
-          </div>
-
-          <div class="status-pill">
+          <!-- WebSocket Live Status Indicator -->
+          <div class="status-pill" title="Telemetry Socket Status">
             <span id="ws-dot" class="status-dot"></span>
             <span id="ws-text">CONNECTING...</span>
           </div>
 
-          <button id="btn-sim-toggle" class="control-btn">⏸ Pause</button>
-          <select id="sim-speed" class="speed-select">
-            <option value="0.5">0.5x Speed</option>
-            <option value="1.0" selected>1.0x Speed</option>
-            <option value="2.0">2.0x Speed</option>
-            <option value="4.0">4.0x Speed</option>
-          </select>
-          <button id="btn-trigger-burst" class="control-btn" title="Inject custom test event">⚡ Inject Event</button>
-          <button id="btn-clear" class="control-btn">Clear</button>
+          <!-- Simulation & Dev Tools Dropdown Menu -->
+          <div class="dropdown-menu-container" id="sim-tools-dropdown-container">
+            <button id="btn-sim-tools-toggle" class="control-btn dropdown-toggle-btn" title="Simulation Engine & Dev Tools">
+              <span>⚙️ Tools</span>
+              <span class="dropdown-arrow">▾</span>
+            </button>
+
+            <div id="sim-tools-menu" class="dropdown-popup-menu" style="display: none;">
+              <div class="dropdown-menu-section-title">SIMULATION ENGINE</div>
+              
+              <div class="dropdown-menu-item">
+                <span class="dropdown-item-label">Playback</span>
+                <button id="btn-sim-toggle" class="menu-action-btn">⏸ Pause</button>
+              </div>
+
+              <div class="dropdown-menu-item">
+                <span class="dropdown-item-label">Speed</span>
+                <select id="sim-speed" class="menu-select">
+                  <option value="0.5">0.5x Speed</option>
+                  <option value="1.0" selected>1.0x Speed</option>
+                  <option value="2.0">2.0x Speed</option>
+                  <option value="4.0">4.0x Speed</option>
+                </select>
+              </div>
+
+              <div class="dropdown-menu-divider"></div>
+              <div class="dropdown-menu-section-title">DIAGNOSTICS & ACTIONS</div>
+
+              <div class="dropdown-menu-item">
+                <span class="dropdown-item-label">Test Injection</span>
+                <button id="btn-trigger-burst" class="menu-action-btn" title="Inject custom test event">⚡ Inject Event</button>
+              </div>
+
+              <div class="dropdown-menu-item">
+                <span class="dropdown-item-label">Stream Feed</span>
+                <button id="btn-clear" class="menu-action-btn menu-btn-danger">🗑️ Clear Feed</button>
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -166,6 +202,9 @@ class App {
               <button class="filter-btn" data-mode="files">📁 File Impact</button>
               <button class="filter-btn" data-mode="agents">🌳 Agent Hierarchy</button>
               <button class="filter-btn" data-mode="services">📞 MCP Services</button>
+              <div class="graph-bar-divider"></div>
+              <button id="btn-spread-graph" class="filter-btn" title="Unfold and neatly organize graph columns">📐 Spread</button>
+              <button id="btn-center-graph" class="filter-btn" title="Center & Fit View">🎯 Center</button>
             </div>
           </div>
 
@@ -878,6 +917,25 @@ class App {
     btnSnackClose?.addEventListener('click', () => {
       this.hideConfirmationSnackbar();
     });
+
+    // Tools & Simulation Dropdown Toggle
+    const btnSimTools = document.getElementById('btn-sim-tools-toggle');
+    const simToolsMenu = document.getElementById('sim-tools-menu');
+    if (btnSimTools && simToolsMenu) {
+      btnSimTools.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = simToolsMenu.style.display === 'none';
+        simToolsMenu.style.display = isHidden ? 'flex' : 'none';
+        btnSimTools.classList.toggle('active', isHidden);
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!simToolsMenu.contains(e.target as Node) && e.target !== btnSimTools) {
+          simToolsMenu.style.display = 'none';
+          btnSimTools.classList.remove('active');
+        }
+      });
+    }
   }
 
   private seekToEventIndex(index: number): void {
