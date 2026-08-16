@@ -616,9 +616,12 @@ export class WorkshopCanvas {
         const dy = worker.targetY - worker.y;
         const dist = Math.hypot(dx, dy);
 
+        // Responsive, energetic movement speed (adaptive easing sprint: 0.20 - 0.35 tiles/frame)
+        const moveStep = Math.min(dist, Math.max(0.20, dist * 0.14));
+
         if (dist > 0.05) {
-          worker.x += (dx / dist) * 0.06;
-          worker.y += (dy / dist) * 0.06;
+          worker.x += (dx / dist) * moveStep;
+          worker.y += (dy / dist) * moveStep;
           worker.state = 'walking';
 
           // Record motion breadcrumb trail point
@@ -630,7 +633,7 @@ export class WorkshopCanvas {
               countForAgent++;
             }
           }
-          if (!lastPoint || Math.hypot(worker.x - lastPoint.x, worker.y - lastPoint.y) >= 0.22) {
+          if (!lastPoint || Math.hypot(worker.x - lastPoint.x, worker.y - lastPoint.y) >= 0.28) {
             // Cap maximum trail nodes per agent to 120 to preserve memory
             if (countForAgent >= 120) {
               for (let idx = 0; idx < this.workerTrails.length; idx++) {
