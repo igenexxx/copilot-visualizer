@@ -73,6 +73,33 @@ describe('RPGEngine', () => {
     expect(freshEngine.stats.spellsCast).toBe(42);
   });
 
+  it('should apply overheat damage and prevent HP from going below 0', () => {
+    engine.stats.hp = 20;
+    const dmg = engine.applyOverheatDamage(2, 6);
+    expect(dmg).toBe(6);
+    expect(engine.stats.hp).toBe(14);
+
+    engine.applyOverheatDamage(5, 50);
+    expect(engine.stats.hp).toBe(0);
+  });
+
+  it('should take immediate thermal damage when handling event on an overheated station', () => {
+    engine.stats.hp = 100;
+    const evt: VisualizerEvent = {
+      id: 'e-overheat',
+      sessionId: 's-1',
+      timestamp: Date.now(),
+      type: 'file.write',
+      agentId: 'agent-1',
+      station: 'cnc_lathe',
+      title: 'Write code under fire',
+      payload: {},
+    };
+
+    engine.handleEvent(evt, false, true);
+    expect(engine.stats.hp).toBe(92); // 100 - 8 overheat damage
+  });
+
   it('should handle adversarial / malformed loadState inputs without crashing', () => {
     expect(() => engine.loadState(null as any)).not.toThrow();
     expect(() => engine.loadState(undefined as any)).not.toThrow();

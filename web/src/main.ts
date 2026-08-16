@@ -1437,7 +1437,9 @@ class App {
     if (event.type === 'command.run' || event.type === 'command.output') this.stats.testsRun++;
     this.stats.activeAgents = Math.max(1, this.workshopCanvas.floors.reduce((acc, fl) => acc + fl.workers.size, 0));
 
-    this.rpg.handleEvent(event, effectiveIsHistory);
+    const st = this.workshopCanvas.getStation(event.station);
+    const isOverheated = st ? (st.overheating || st.heatLevel >= 70) : false;
+    this.rpg.handleEvent(event, effectiveIsHistory, isOverheated);
     this.tokenomics.handleEvent(event);
 
     // Cognitive Classification Dispatch (HUD alerts)
@@ -1621,6 +1623,10 @@ class App {
     this.rpg.onStatsChanged = () => {
       this.updateRPGStatsUI();
       this.renderRPGHotbar();
+    };
+
+    this.workshopCanvas.onOverheatTick = (overheatedCount) => {
+      this.rpg.applyOverheatDamage(overheatedCount);
     };
   }
 
@@ -1826,7 +1832,18 @@ class App {
 
     if (hpVal && hpFill) {
       hpVal.textContent = `${s.hp}/${s.maxHp} HP`;
-      hpFill.style.width = `${Math.min(100, (s.hp / s.maxHp) * 100)}%`;
+      const hpPct = Math.min(100, (s.hp / s.maxHp) * 100);
+      hpFill.style.width = `${hpPct}%`;
+      if (hpPct <= 25) {
+        hpFill.style.background = '#ef4444';
+        hpFill.style.boxShadow = '0 0 10px rgba(239, 68, 68, 0.8)';
+      } else if (hpPct <= 50) {
+        hpFill.style.background = '#f59e0b';
+        hpFill.style.boxShadow = 'none';
+      } else {
+        hpFill.style.background = '#10b981';
+        hpFill.style.boxShadow = 'none';
+      }
     }
 
     if (mpVal && mpFill) {

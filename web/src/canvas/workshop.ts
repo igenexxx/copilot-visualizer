@@ -80,6 +80,8 @@ export class WorkshopCanvas {
   public selectedAgent: string | null = null;
   public onSelectElement?: (type: 'station' | 'agent' | 'floor', data: any) => void;
   public onFloorChanged?: (floorIndex: number) => void;
+  public onOverheatTick?: (overheatedCount: number) => void;
+  private overheatTickCounter = 0;
 
   // Camera & Pan/Zoom
   public zoom = 0.85;
@@ -689,6 +691,23 @@ export class WorkshopCanvas {
             });
           }
         }
+      }
+    }
+
+    // 1.5. Check for overheating stations periodic damage tick (~every 60 frames / 1s)
+    this.overheatTickCounter++;
+    if (this.overheatTickCounter >= 60) {
+      this.overheatTickCounter = 0;
+      let overheatCount = 0;
+      for (const fl of this.floors) {
+        for (const st of fl.workstations.values()) {
+          if (st.overheating || st.heatLevel >= 70) {
+            overheatCount++;
+          }
+        }
+      }
+      if (overheatCount > 0 && this.onOverheatTick) {
+        this.onOverheatTick(overheatCount);
       }
     }
 
@@ -2032,5 +2051,12 @@ export class WorkshopCanvas {
         }
       }
     }
+  }
+
+  public getStation(stationType?: string): Workstation | undefined {
+    if (!stationType) return undefined;
+    const currentFloor = this.floors[this.activeFloorIndex] || this.floors[0];
+    if (!currentFloor) return undefined;
+    return currentFloor.workstations.get(stationType as any);
   }
 }

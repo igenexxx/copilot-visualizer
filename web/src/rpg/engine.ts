@@ -118,14 +118,37 @@ export class RPGEngine {
 
   public onLevelUp?: (newLevel: number, title: string) => void;
   public onStatsChanged?: (stats: RPGStats) => void;
-  public processEvent(evt: VisualizerEvent): { skillId?: string; xpGained: number; manaSpent: number } {
-    return this.handleEvent(evt);
+  public applyOverheatDamage(overheatedStationsCount: number = 1, customDamage?: number): number {
+    if (overheatedStationsCount <= 0) return 0;
+    const damage = customDamage ?? (overheatedStationsCount * 3);
+    this.stats.hp = Math.max(0, this.stats.hp - damage);
+    if (this.onStatsChanged) {
+      this.onStatsChanged(this.stats);
+    }
+    return damage;
   }
 
-  public handleEvent(evt: VisualizerEvent, isHistory: boolean = false): { skillId?: string; xpGained: number; manaSpent: number } {
+  public processEvent(
+    evt: VisualizerEvent,
+    isHistory: boolean = false,
+    isOverheated: boolean = false
+  ): { skillId?: string; xpGained: number; manaSpent: number } {
+    return this.handleEvent(evt, isHistory, isOverheated);
+  }
+
+  public handleEvent(
+    evt: VisualizerEvent,
+    isHistory: boolean = false,
+    isOverheated: boolean = false
+  ): { skillId?: string; xpGained: number; manaSpent: number } {
     let triggeredSkillId: string | undefined;
     let xpGain = 15;
     let manaCost = 400;
+
+    // Apply immediate thermal stress damage if workstation was already overheating
+    if (isOverheated) {
+      this.stats.hp = Math.max(0, this.stats.hp - 8);
+    }
 
     if (evt.type === 'file.write') {
       triggeredSkillId = 'skill-forge';
@@ -139,8 +162,10 @@ export class RPGEngine {
       triggeredSkillId = 'skill-laser';
       xpGain = 90;
       manaCost = 1200;
-      // Recover HP on successful tests
-      this.stats.hp = Math.min(this.stats.maxHp, this.stats.hp + 5);
+      // Recover HP on successful tests (if not under critical overheat)
+      if (!isOverheated) {
+        this.stats.hp = Math.min(this.stats.maxHp, this.stats.hp + 5);
+      }
     } else if (evt.type === 'checkpoint.request' || evt.type === 'checkpoint.decision') {
       triggeredSkillId = 'skill-barrier';
       xpGain = 120;
