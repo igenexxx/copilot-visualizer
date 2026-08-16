@@ -82,7 +82,9 @@ func (p *Provider) detectModel(m string) string {
 	if lower == "" {
 		return ""
 	}
-	if strings.Contains(lower, "gpt-5") {
+	if strings.Contains(lower, "terra") || strings.Contains(lower, "5.6") {
+		return "gpt-5.6-terra"
+	} else if strings.Contains(lower, "gpt-5") {
 		return "gpt-5"
 	} else if strings.Contains(lower, "o3") {
 		return "o3-mini"

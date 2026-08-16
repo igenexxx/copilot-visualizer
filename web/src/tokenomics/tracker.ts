@@ -103,6 +103,30 @@ export const ALL_PRICING_MODELS: Record<string, ModelPricing> = {
   },
 
   // OpenAI / Copilot Family
+  'gpt-5.6-terra': {
+    id: 'gpt-5.6-terra',
+    source: 'copilot_cli',
+    name: 'GPT-5.6 Terra',
+    agentLabel: '🐙 GPT-5.6 Terra (GitHub Copilot)',
+    provider: 'OpenAI',
+    maxContext: 256000,
+    inputPerMillion: 2.5,
+    outputPerMillion: 10.0,
+    cachePerMillion: 1.25,
+    badgeColor: '#10b981',
+  },
+  'gpt-5': {
+    id: 'gpt-5',
+    source: 'copilot_cli',
+    name: 'GPT-5 (Copilot)',
+    agentLabel: '🐙 GPT-5 (GitHub Copilot)',
+    provider: 'OpenAI',
+    maxContext: 256000,
+    inputPerMillion: 2.5,
+    outputPerMillion: 10.0,
+    cachePerMillion: 1.25,
+    badgeColor: '#10b981',
+  },
   'gpt-4o': {
     id: 'gpt-4o',
     source: 'copilot_cli',
@@ -127,9 +151,21 @@ export const ALL_PRICING_MODELS: Record<string, ModelPricing> = {
     cachePerMillion: 0.075,
     badgeColor: '#34d399',
   },
+  'o1': {
+    id: 'o1',
+    source: 'copilot_cli',
+    name: 'OpenAI o1',
+    agentLabel: '🧠 OpenAI o1',
+    provider: 'OpenAI',
+    maxContext: 200000,
+    inputPerMillion: 15.0,
+    outputPerMillion: 60.0,
+    cachePerMillion: 7.5,
+    badgeColor: '#818cf8',
+  },
   'o3-mini': {
     id: 'o3-mini',
-    source: 'openai',
+    source: 'copilot_cli',
     name: 'OpenAI o3-mini',
     agentLabel: '🧠 OpenAI o3-mini (Reasoning)',
     provider: 'OpenAI',
@@ -253,6 +289,47 @@ export class TokenomicsTracker {
 
     this.activeModel = ALL_PRICING_MODELS[primaryModelId];
     this.registerModelUsage(primaryModelId);
+    this.recompute();
+  }
+
+  public syncFromEnrichment(enrichment: any): void {
+    if (!enrichment) return;
+    const modelId = enrichment.model || enrichment.latestModel;
+    if (modelId) {
+      let targetModel = ALL_PRICING_MODELS[modelId];
+      if (!targetModel) {
+        const lower = String(modelId).toLowerCase();
+        if (lower.includes('gpt-5')) targetModel = ALL_PRICING_MODELS['gpt-5.6-terra'];
+        else if (lower.includes('o3')) targetModel = ALL_PRICING_MODELS['o3-mini'];
+        else if (lower.includes('o1')) targetModel = ALL_PRICING_MODELS['o1'];
+        else if (lower.includes('4o-mini') || lower.includes('mini')) targetModel = ALL_PRICING_MODELS['gpt-4o-mini'];
+        else if (lower.includes('claude-3-7') || lower.includes('claude-3.7')) targetModel = ALL_PRICING_MODELS['claude-3-7-sonnet'];
+        else if (lower.includes('claude-3-5') || lower.includes('claude-3.5')) targetModel = ALL_PRICING_MODELS['claude-3-5-sonnet'];
+        else if (lower.includes('flash')) targetModel = ALL_PRICING_MODELS['gemini-3.7-flash'];
+      }
+      if (targetModel) {
+        this.activeModel = targetModel;
+        this.activeSource = targetModel.source;
+      }
+    }
+
+    if (typeof enrichment.activeContextTokens === 'number' && enrichment.activeContextTokens > 0) {
+      this.totalContextTokens = enrichment.activeContextTokens;
+    } else if (typeof enrichment.inputTokens === 'number') {
+      this.totalContextTokens = enrichment.inputTokens;
+    }
+
+    if (typeof enrichment.inputTokens === 'number') this.totalInputTokens = enrichment.inputTokens;
+    if (typeof enrichment.outputTokens === 'number') this.totalOutputTokens = enrichment.outputTokens;
+    if (typeof enrichment.cacheReadTokens === 'number') this.totalCachedTokens = enrichment.cacheReadTokens;
+    if (typeof enrichment.totalCostUsd === 'number') this.totalCostUSD = enrichment.totalCostUsd;
+
+    const rec = this.registerModelUsage(this.activeModel.id);
+    rec.inputTokens = this.totalInputTokens;
+    rec.outputTokens = this.totalOutputTokens;
+    rec.cachedTokens = this.totalCachedTokens;
+    rec.costUSD = this.totalCostUSD;
+
     this.recompute();
   }
 

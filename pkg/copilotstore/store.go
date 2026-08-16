@@ -13,18 +13,19 @@ import (
 
 // UsageSummary contains aggregated tokenomics and telemetry metrics for a Copilot session.
 type UsageSummary struct {
-	SessionID        string  `json:"sessionId"`
-	LatestModel      string  `json:"latestModel"`
-	InputTokens      int64   `json:"inputTokens"`
-	OutputTokens     int64   `json:"outputTokens"`
-	CacheReadTokens  int64   `json:"cacheReadTokens"`
-	CacheWriteTokens int64   `json:"cacheWriteTokens"`
-	ReasoningTokens  int64   `json:"reasoningTokens"`
-	TotalNanoAiu     int64   `json:"totalNanoAiu"`
-	TotalCostUSD     float64 `json:"totalCostUsd"`
-	DurationMs       int64   `json:"durationMs"`
-	TurnCount        int     `json:"turnCount"`
-	UpdatedAt        int64   `json:"updatedAt"`
+	SessionID           string  `json:"sessionId"`
+	LatestModel         string  `json:"latestModel"`
+	ActiveContextTokens int64   `json:"activeContextTokens"`
+	InputTokens         int64   `json:"inputTokens"`
+	OutputTokens        int64   `json:"outputTokens"`
+	CacheReadTokens     int64   `json:"cacheReadTokens"`
+	CacheWriteTokens    int64   `json:"cacheWriteTokens"`
+	ReasoningTokens     int64   `json:"reasoningTokens"`
+	TotalNanoAiu        int64   `json:"totalNanoAiu"`
+	TotalCostUSD        float64 `json:"totalCostUsd"`
+	DurationMs          int64   `json:"durationMs"`
+	TurnCount           int     `json:"turnCount"`
+	UpdatedAt           int64   `json:"updatedAt"`
 }
 
 // SessionMetadata holds repository and workspace context.
@@ -160,17 +161,21 @@ func (r *Reader) GetSessionUsage(sessionID string) (*UsageSummary, error) {
 		return nil, fmt.Errorf("query assistant_usage_events failed: %w", err)
 	}
 
-	// Also find the latest model used if multiple models were active
+	// Find the latest model and active context window from the latest turn
 	var latestModel string
+	var latestInputTokens int64
 	_ = db.QueryRow(`
-		SELECT COALESCE(model, '') 
+		SELECT COALESCE(model, ''), COALESCE(input_tokens, 0)
 		FROM assistant_usage_events 
 		WHERE session_id = ? 
 		ORDER BY id DESC LIMIT 1;
-	`, sessionID).Scan(&latestModel)
+	`, sessionID).Scan(&latestModel, &latestInputTokens)
 
 	if latestModel == "" {
 		latestModel = model
+	}
+	if latestInputTokens == 0 && inputTokens > 0 {
+		latestInputTokens = inputTokens
 	}
 
 	// 1 Nano AIU = 1e-9 AIU. In GitHub Copilot billing: 1 AIU ≈ $0.0001 (or $0.10 per 1000 AIU).
@@ -178,18 +183,19 @@ func (r *Reader) GetSessionUsage(sessionID string) (*UsageSummary, error) {
 	costUSD := (float64(totalNanoAiu) / 1e9) * 0.0001
 
 	return &UsageSummary{
-		SessionID:        sessionID,
-		LatestModel:      latestModel,
-		InputTokens:      inputTokens,
-		OutputTokens:     outputTokens,
-		CacheReadTokens:  cacheReadTokens,
-		CacheWriteTokens: cacheWriteTokens,
-		ReasoningTokens:  reasoningTokens,
-		TotalNanoAiu:     totalNanoAiu,
-		TotalCostUSD:     costUSD,
-		DurationMs:       durationMs,
-		TurnCount:        turnCount,
-		UpdatedAt:        time.Now().UnixMilli(),
+		SessionID:           sessionID,
+		LatestModel:         latestModel,
+		ActiveContextTokens: latestInputTokens,
+		InputTokens:         inputTokens,
+		OutputTokens:        outputTokens,
+		CacheReadTokens:     cacheReadTokens,
+		CacheWriteTokens:    cacheWriteTokens,
+		ReasoningTokens:     reasoningTokens,
+		TotalNanoAiu:        totalNanoAiu,
+		TotalCostUSD:        costUSD,
+		DurationMs:          durationMs,
+		TurnCount:           turnCount,
+		UpdatedAt:           time.Now().UnixMilli(),
 	}, nil
 }
 

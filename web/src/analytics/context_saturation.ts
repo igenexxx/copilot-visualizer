@@ -73,14 +73,20 @@ export class ContextSaturationEngine {
     modelId: string,
     inputTokens: number,
     outputTokens: number,
-    cachedTokens: number
+    cachedTokens: number,
+    totalContextTokens?: number
   ): ContextSaturationTelemetry {
     if (modelId) this.activeModel = modelId;
     this.totalInputTokens = inputTokens;
     this.totalOutputTokens = outputTokens;
     this.totalCachedTokens = cachedTokens;
+    if (typeof totalContextTokens === 'number') {
+      this.activeContextTokens = totalContextTokens;
+    }
     return this.getTelemetry();
   }
+
+  private activeContextTokens: number = 0;
 
   public getTelemetry(): ContextSaturationTelemetry {
     const modelPricing = ALL_PRICING_MODELS[this.activeModel];
@@ -91,7 +97,9 @@ export class ContextSaturationEngine {
     const fileTokens = Math.max(this.accumulatedFileTokens, Math.round(this.totalInputTokens * 0.5));
     const outputBufferTokens = this.totalOutputTokens;
 
-    const currentTokens = Math.min(maxContext, this.totalInputTokens + this.totalOutputTokens);
+    const currentTokens = this.activeContextTokens > 0
+      ? Math.min(maxContext, this.activeContextTokens)
+      : Math.min(maxContext, this.totalInputTokens + this.totalOutputTokens);
     const saturationPct = Math.min(100, Math.round((currentTokens / maxContext) * 1000) / 10);
 
     let safetyTier: ContextSafetyTier = 'SAFE';

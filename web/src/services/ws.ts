@@ -193,6 +193,19 @@ export class VisualizerClient {
     return [];
   }
 
+  public async fetchEnrichmentUsage(sessionId: string): Promise<any | null> {
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/enrichment/usage?id=${encodeURIComponent(sessionId)}`);
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {
+      console.warn('Failed to fetch enrichment usage:', e);
+    }
+    return null;
+  }
+
   public async fetchSessionState(sessionId: string): Promise<any | null> {
     const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
     try {

@@ -98,18 +98,22 @@ func (c *ClaudeEnricher) EnrichUsage(sessionID string) (*UsageSummary, error) {
 				}
 
 				if usage, ok := raw["usage"].(map[string]any); ok {
+					var turnIn, turnCacheRead int64
 					if in, ok := usage["input_tokens"].(float64); ok {
 						summary.InputTokens += int64(in)
+						turnIn = int64(in)
 					}
 					if out, ok := usage["output_tokens"].(float64); ok {
 						summary.OutputTokens += int64(out)
 					}
 					if cr, ok := usage["cache_read_input_tokens"].(float64); ok {
 						summary.CacheReadTokens += int64(cr)
+						turnCacheRead = int64(cr)
 					}
 					if cw, ok := usage["cache_creation_input_tokens"].(float64); ok {
 						summary.CacheWriteTokens += int64(cw)
 					}
+					summary.ActiveContextTokens = turnIn + turnCacheRead
 				}
 			}
 			break

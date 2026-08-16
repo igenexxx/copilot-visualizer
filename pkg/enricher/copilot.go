@@ -55,19 +55,20 @@ func (c *CopilotEnricher) EnrichUsage(sessionID string) (*UsageSummary, error) {
 		return nil, err
 	}
 	return &UsageSummary{
-		SessionID:        sessionID,
-		Provider:         "copilot_cli",
-		Model:            u.LatestModel,
-		InputTokens:      u.InputTokens,
-		OutputTokens:     u.OutputTokens,
-		CacheReadTokens:  u.CacheReadTokens,
-		CacheWriteTokens: u.CacheWriteTokens,
-		ReasoningTokens:  u.ReasoningTokens,
-		TotalNanoAiu:     u.TotalNanoAiu,
-		TotalCostUSD:     u.TotalCostUSD,
-		DurationMs:       u.DurationMs,
-		TurnCount:        u.TurnCount,
-		UpdatedAt:        u.UpdatedAt,
+		SessionID:           sessionID,
+		Provider:            "copilot_cli",
+		Model:               u.LatestModel,
+		ActiveContextTokens: u.ActiveContextTokens,
+		InputTokens:         u.InputTokens,
+		OutputTokens:        u.OutputTokens,
+		CacheReadTokens:     u.CacheReadTokens,
+		CacheWriteTokens:    u.CacheWriteTokens,
+		ReasoningTokens:     u.ReasoningTokens,
+		TotalNanoAiu:        u.TotalNanoAiu,
+		TotalCostUSD:        u.TotalCostUSD,
+		DurationMs:          u.DurationMs,
+		TurnCount:           u.TurnCount,
+		UpdatedAt:           u.UpdatedAt,
 	}, nil
 }
 

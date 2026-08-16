@@ -2,11 +2,12 @@ package enricher
 
 // UsageSummary holds unified, precise tokenomics and telemetry metrics across AI providers.
 type UsageSummary struct {
-	SessionID        string  `json:"sessionId"`
-	Provider         string  `json:"provider"`
-	Model            string  `json:"model"`
-	InputTokens      int64   `json:"inputTokens"`
-	OutputTokens     int64   `json:"outputTokens"`
+	SessionID           string  `json:"sessionId"`
+	Provider            string  `json:"provider"`
+	Model               string  `json:"model"`
+	ActiveContextTokens int64   `json:"activeContextTokens"`
+	InputTokens         int64   `json:"inputTokens"`
+	OutputTokens        int64   `json:"outputTokens"`
 	CacheReadTokens  int64   `json:"cacheReadTokens"`
 	CacheWriteTokens int64   `json:"cacheWriteTokens"`
 	ReasoningTokens  int64   `json:"reasoningTokens"`

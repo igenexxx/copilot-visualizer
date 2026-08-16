@@ -48,6 +48,7 @@ class App {
   private activeSessionSource = 'antigravity';
   private discoveredSessions: any[] = [];
   private seenEventIds = new Set<string>();
+  private isAutoFollowEnabled = true;
 
   // Metrics
   private stats = {
@@ -118,6 +119,10 @@ class App {
               <span id="session-text">SEARCHING SESSIONS...</span>
             </div>
             <select id="session-select-dropdown" class="session-dropdown-select" style="display: none;" title="Switch Discovered Session"></select>
+            <button id="btn-auto-follow" class="btn-auto-follow active" title="Toggle Auto-Follow: when ON, visualizer automatically follows whichever session receives new activity. When OFF, stays locked on current session.">
+              <span class="auto-follow-dot"></span>
+              <span id="auto-follow-text">FOLLOW: ON</span>
+            </button>
           </div>
         </div>
 
@@ -671,6 +676,12 @@ class App {
     this.missionControl.onToggle = (isExpanded) => {
       if (isExpanded) {
         this.recalculateMissionControlAnalytics();
+        this.missionControl.update(
+          this.pendingContextStatus,
+          this.pendingGoalStatus,
+          this.pendingBlastStatus,
+          this.pendingWaterfallStatus
+        );
         this.scheduleUIRefresh();
       } else {
         this.pendingContextStatus = null;
@@ -682,6 +693,22 @@ class App {
   }
 
   private bindControls(): void {
+    // Auto-Follow Session Toggle
+    const savedFollow = localStorage.getItem('copilot_viz_autofollow');
+    if (savedFollow !== null) {
+      this.isAutoFollowEnabled = savedFollow === 'true';
+    }
+    this.updateAutoFollowButtonUI();
+
+    const btnFollow = document.getElementById('btn-auto-follow');
+    if (btnFollow) {
+      btnFollow.onclick = () => {
+        this.isAutoFollowEnabled = !this.isAutoFollowEnabled;
+        localStorage.setItem('copilot_viz_autofollow', String(this.isAutoFollowEnabled));
+        this.updateAutoFollowButtonUI();
+      };
+    }
+
     const btnWorkshop = document.getElementById('btn-view-workshop')!;
     const btnGraph = document.getElementById('btn-view-graph')!;
     const btnSplit = document.getElementById('btn-view-split')!;
@@ -1068,6 +1095,11 @@ class App {
         const history = await this.client.fetchHistory(active.id);
         history.forEach((evt) => this.handleIncomingEvent(evt, true));
         await this.restoreSessionState(active.id);
+
+        const enrichment = await this.client.fetchEnrichmentUsage(active.id);
+        if (enrichment && enrichment.usage) {
+          this.tokenomics.syncFromEnrichment(enrichment.usage);
+        }
       } else {
         this.updateSessionBadgeUI('antigravity');
         const history = await this.client.fetchHistory();
@@ -1193,14 +1225,13 @@ class App {
 
       // 5. Reset RPG Engine & Tokenomics Tracker
       this.rpg = new RPGEngine();
-      this.setupRPG();
-      this.tokenomics = new TokenomicsTracker();
-      if (source) {
-        this.tokenomics.setSource(source);
-      }
-      this.setupTokenomics();
-
-      // 6. Reset Intelligence & Mission Control Analyzers
+      this.setupRPG();      // 6. Reset Tokenomics & Real-Time Analytics for new session
+      const defaultModel = effectiveSource === 'copilot_cli' || effectiveSource === 'copilot'
+        ? 'gpt-5.6-terra'
+        : effectiveSource === 'claude_code' || effectiveSource === 'claude'
+        ? 'claude-3-7-sonnet'
+        : 'gemini-3.7-flash';
+      this.tokenomics.resetSession(defaultModel);
       this.loopDetector.reset();
       this.cognitiveClassifier.reset();
       this.contextSaturation.reset();
@@ -1229,6 +1260,21 @@ class App {
 
       // 10. Restore persisted state for this session
       await this.restoreSessionState(sessionId);
+
+      // 11. Fetch precise enrichment metrics
+      const enrichment = await this.client.fetchEnrichmentUsage(sessionId);
+      if (enrichment && enrichment.usage) {
+        this.tokenomics.syncFromEnrichment(enrichment.usage);
+      }
+      if (enrichment && enrichment.metadata) {
+        this.missionControl?.updateSessionInfo({
+          id: sessionId,
+          source: effectiveSource,
+          path: enrichment.metadata.cwd || enrichment.metadata.repository || '',
+          active: true,
+          model: enrichment.usage ? enrichment.usage.model : undefined,
+        });
+      }
     } finally {
       this.isSwitchingSession = false;
       this.updateHUD();
@@ -1309,6 +1355,20 @@ class App {
     this.updateHUD();
   }
 
+  private updateAutoFollowButtonUI(): void {
+    const btnFollow = document.getElementById('btn-auto-follow');
+    const textEl = document.getElementById('auto-follow-text');
+    if (btnFollow) {
+      btnFollow.classList.toggle('active', this.isAutoFollowEnabled);
+      btnFollow.title = this.isAutoFollowEnabled
+        ? 'Auto-Follow: ON. Automatically tracks active AI session. Click to lock on current session.'
+        : 'Auto-Follow: OFF (LOCKED). Locked on current session. Click to enable auto-follow.';
+    }
+    if (textEl) {
+      textEl.textContent = this.isAutoFollowEnabled ? 'FOLLOW: ON' : 'LOCKED';
+    }
+  }
+
   private handleIncomingEvent(event: VisualizerEvent, isHistory: boolean = false): void {
     if (
       event.sessionId &&
@@ -1317,6 +1377,9 @@ class App {
       !this.isInitialLoading &&
       !this.isSwitchingSession
     ) {
+      if (!this.isAutoFollowEnabled) {
+        return; // Auto-follow is OFF: stay locked on currently selected session
+      }
       const source = (event.payload?.source as string) || (event.payload?.detectedSource as string) || 'copilot_cli';
       this.switchSession(event.sessionId, source);
       return;
@@ -1466,7 +1529,15 @@ class App {
   }
 
   private recalculateMissionControlAnalytics(): void {
-    this.contextSaturation.reset();
+    const tokState = this.tokenomics.getState();
+    this.pendingContextStatus = this.contextSaturation.syncWithTokenomics(
+      tokState.activeModel.id,
+      tokState.totalInputTokens,
+      tokState.totalOutputTokens,
+      tokState.totalCachedTokens,
+      tokState.totalContextTokens
+    );
+
     this.goalTracker.reset();
     this.blastRadius.reset();
     this.waterfallTimeline.reset();
@@ -1476,7 +1547,6 @@ class App {
       : this.allEvents;
 
     for (const evt of eventsToProcess) {
-      this.pendingContextStatus = this.contextSaturation.processEvent(evt);
       this.pendingGoalStatus = this.goalTracker.processEvent(evt);
       this.pendingBlastStatus = this.blastRadius.processEvent(evt);
       this.pendingWaterfallStatus = this.waterfallTimeline.processEvent(evt);
@@ -1680,7 +1750,8 @@ class App {
         state.activeModel.id,
         state.totalInputTokens,
         state.totalOutputTokens,
-        state.totalCachedTokens
+        state.totalCachedTokens,
+        state.totalContextTokens
       );
       this.scheduleUIRefresh();
     };
