@@ -45,6 +45,14 @@ export class WaterfallTimelineEngine {
   }
 
   public processEvent(event: VisualizerEvent): WaterfallTelemetry {
+    if (
+      event.agentId === 'proctracer' ||
+      event.type === 'os.telemetry' ||
+      event.payload?.proctracer_snapshot
+    ) {
+      return this.getTelemetry();
+    }
+
     const now = event.timestamp || Date.now();
 
     // Close any previous pending span if duration was not provided

@@ -343,6 +343,15 @@ export class TokenomicsTracker {
   }
 
   public handleEvent(evt: VisualizerEvent): void {
+    // Ignore OS system metrics & background process telemetry
+    if (
+      evt.agentId === 'proctracer' ||
+      evt.type === 'os.telemetry' ||
+      evt.payload?.proctracer_snapshot
+    ) {
+      return;
+    }
+
     // Strictly trust explicit detectedModel from the Go backend parser
     let eventModelId = this.activeModel.id;
 

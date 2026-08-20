@@ -181,6 +181,14 @@ export class RPGEngine {
     isHistory: boolean = false,
     isOverheated: boolean = false
   ): { skillId?: string; xpGained: number; manaSpent: number } {
+    if (
+      evt.agentId === 'proctracer' ||
+      evt.type === 'os.telemetry' ||
+      evt.payload?.proctracer_snapshot
+    ) {
+      return { xpGained: 0, manaSpent: 0 };
+    }
+
     let triggeredSkillId: string | undefined;
     let xpGain = 15;
     let manaCost = 400;

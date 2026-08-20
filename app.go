@@ -11,6 +11,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
+	"github.com/zhenya/copilot-visualizer/pkg/proctracer"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/repotree"
 	"github.com/zhenya/copilot-visualizer/pkg/sessionstore"
@@ -23,6 +24,7 @@ type App struct {
 	cancel     context.CancelFunc
 	eventHub   *hub.Hub
 	engine     *autodiscover.Engine
+	procTracer *proctracer.Manager
 	store      *sessionstore.Store
 	recorder   *recorder.Recorder
 	simulator  *simulator.Simulator
@@ -39,10 +41,12 @@ func NewApp(demoMode bool) *App {
 	rec, _ := recorder.New(".tapes")
 	store, _ := sessionstore.New("")
 	engine := autodiscover.NewEngine(eventHub, nil)
+	procMgr := proctracer.NewManager(eventHub, nil)
 
 	return &App{
 		eventHub:   eventHub,
 		engine:     engine,
+		procTracer: procMgr,
 		store:      store,
 		recorder:   rec,
 		simulator:  sim,
@@ -89,6 +93,11 @@ func (a *App) startup(ctx context.Context) {
 		a.engine.StartWatcher(a.ctx)
 	}
 
+	// Start Linux/WSL Process Telemetry Tracer
+	if a.procTracer != nil && a.procTracer.IsSupported() {
+		a.procTracer.Start(a.ctx)
+	}
+
 	// If Demo mode requested, start simulator stream
 	if a.isDemoMode && a.simulator != nil {
 		a.simulator.Start(true)
@@ -99,6 +108,9 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	if a.cancel != nil {
 		a.cancel()
+	}
+	if a.procTracer != nil {
+		a.procTracer.Stop()
 	}
 	if a.store != nil {
 		_ = a.store.Close()
@@ -246,4 +258,36 @@ func (a *App) InjectCustomEvent(evt *events.Event) {
 		evt.Timestamp = time.Now().UnixMilli()
 	}
 	_ = a.eventHub.BroadcastEvent(evt)
+}
+
+// GetProcTracerStatus returns whether OS process telemetry is available and current target status.
+func (a *App) GetProcTracerStatus() (*proctracer.TracerStatus, error) {
+	if a.procTracer == nil {
+		return &proctracer.TracerStatus{Supported: false, Attached: false}, nil
+	}
+	return a.procTracer.GetStatus(), nil
+}
+
+// GetProcTargets returns all discovered AI agent processes on the system.
+func (a *App) GetProcTargets() ([]proctracer.TargetProcess, error) {
+	if a.procTracer == nil {
+		return []proctracer.TargetProcess{}, nil
+	}
+	return a.procTracer.GetDiscoveredTargets(), nil
+}
+
+// AttachProcPID manually switches telemetry focus to a specific PID.
+func (a *App) AttachProcPID(pid int) (*proctracer.Snapshot, error) {
+	if a.procTracer == nil {
+		return nil, fmt.Errorf("process tracer not initialized")
+	}
+	return a.procTracer.AttachPID(pid)
+}
+
+// GetProcSnapshot returns a point-in-time process resource and network snapshot.
+func (a *App) GetProcSnapshot() (*proctracer.Snapshot, error) {
+	if a.procTracer == nil {
+		return &proctracer.Snapshot{Supported: false}, nil
+	}
+	return a.procTracer.GetSnapshot()
 }

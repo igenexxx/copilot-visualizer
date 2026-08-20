@@ -62,6 +62,14 @@ export class LoopDetectorEngine {
    * Ingests a new event into the sliding window and returns the current loop analysis.
    */
   public processEvent(event: VisualizerEvent): LoopStatus {
+    if (
+      event.agentId === 'proctracer' ||
+      event.type === 'os.telemetry' ||
+      event.payload?.proctracer_snapshot
+    ) {
+      return this.evaluateCurrentStatus();
+    }
+
     const isError =
       event.type === 'error' ||
       event.payload?.error != null ||

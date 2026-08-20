@@ -2,6 +2,7 @@ import type { ContextSaturationTelemetry } from '../analytics/context_saturation
 import type { GoalStackTelemetry } from '../analytics/goal_tracker';
 import type { BlastRadiusTelemetry } from '../analytics/blast_radius';
 import type { WaterfallTelemetry } from '../analytics/waterfall_timeline';
+import type { ProcSnapshot } from '../types';
 import { getProviderIcon, getProviderLabel, getProviderColor } from './icons';
 
 export class MissionControlPanel {
@@ -9,6 +10,7 @@ export class MissionControlPanel {
   public isExpanded: boolean = false;
   public onToggle?: (isExpanded: boolean) => void;
   public onSelectSession?: (sessionId: string, source: string) => void;
+  public onOpenProcInspector?: () => void;
 
   private currentSession: { id: string; source: string; path?: string; active?: boolean; model?: string } = {
     id: 'global',
@@ -67,6 +69,13 @@ export class MissionControlPanel {
                 <div class="mc-field-value-row">
                   <span class="mc-field-val mc-val-path" id="mc-sess-path" title="Host log file location">--</span>
                   <button class="mc-btn-copy" id="mc-btn-copy-path" title="Copy Path">📋</button>
+                </div>
+              </div>
+              <div class="mc-session-field" id="mc-proc-telemetry-row">
+                <span class="mc-field-label">OS PROCESS TELEMETRY</span>
+                <div class="mc-field-value-row">
+                  <span class="mc-field-val mc-val-mono" id="mc-proc-telemetry-val">Linux / WSL (Auto-Scan)</span>
+                  <button class="mc-btn-copy" id="mc-btn-inspect-proc" title="Inspect Linux/WSL Process Telemetry">⚡ Open</button>
                 </div>
               </div>
               <div class="mc-session-footer-row">
@@ -187,6 +196,28 @@ export class MissionControlPanel {
         setTimeout(() => { btnCopyPath.textContent = '📋'; }, 1500);
       }
     });
+
+    const btnInspectProc = document.getElementById('mc-btn-inspect-proc');
+    btnInspectProc?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.onOpenProcInspector) {
+        this.onOpenProcInspector();
+      }
+    });
+  }
+
+  public updateProcSnapshot(snap?: ProcSnapshot | null): void {
+    const valEl = document.getElementById('mc-proc-telemetry-val');
+    if (!valEl) return;
+
+    if (!snap || !snap.supported || !snap.target) {
+      valEl.textContent = 'Linux/WSL Telemetry: Inactive';
+      return;
+    }
+
+    const cpu = snap.metrics ? snap.metrics.cpu_percent.toFixed(1) : '0';
+    const rssMB = snap.metrics ? (snap.metrics.rss_bytes / (1024 * 1024)).toFixed(0) : '0';
+    valEl.textContent = `PID ${snap.target.pid} (${snap.target.name || snap.target.kind}) | CPU ${cpu}% | RSS ${rssMB}MB`;
   }
 
   public updateSessionInfo(

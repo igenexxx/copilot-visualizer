@@ -129,3 +129,89 @@ export interface CheckpointItem {
   createdAt: number;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'MODIFIED';
 }
+
+// Linux/WSL Process Telemetry Types
+export interface TargetProcess {
+  pid: number;
+  ppid: number;
+  kind: 'antigravity' | 'copilot' | 'claude' | 'generic-ai' | string;
+  name: string;
+  executable: string;
+  command_line: string[];
+  cwd: string;
+  model: string;
+  user: string;
+  start_time: string;
+  state: string;
+  env?: Record<string, string>;
+  lock_file?: string;
+}
+
+export interface ResourceMetrics {
+  timestamp: string;
+  cpu_percent: number;
+  rss_bytes: number;
+  vms_bytes: number;
+  peak_rss_bytes: number;
+  read_bytes_sec: number;
+  write_bytes_sec: number;
+  read_syscalls_sec: number;
+  write_syscalls_sec: number;
+  total_read_bytes: number;
+  total_write_bytes: number;
+  fd_count: number;
+  thread_count: number;
+  child_count: number;
+}
+
+export interface NetworkEndpoint {
+  local_addr: string;
+  remote_addr: string;
+  remote_host: string;
+  remote_port: number;
+  protocol: string;
+  state: string;
+  service_category: string;
+  tx_queue: number;
+  rx_queue: number;
+}
+
+export interface SubprocessInfo {
+  pid: number;
+  ppid: number;
+  name: string;
+  cmdline: string;
+  state: string;
+  rss_bytes: number;
+  cpu_percent: number;
+  start_time: string;
+}
+
+export interface TraceEvent {
+  timestamp: string;
+  kind: 'SPAWN' | 'EXIT' | 'NET_CONN' | 'FILE_IO' | 'AGENT' | 'SYSCALL' | string;
+  severity: 'INFO' | 'WARN' | 'SUCCESS' | 'ACTION';
+  source: string;
+  summary: string;
+  details?: string;
+}
+
+export interface ProcSnapshot {
+  supported: boolean;
+  target: TargetProcess;
+  metrics: ResourceMetrics;
+  children: SubprocessInfo[];
+  connections: NetworkEndpoint[];
+  recent_events: TraceEvent[];
+  timestamp: string;
+}
+
+export interface ProcTracerStatus {
+  supported: boolean;
+  attached: boolean;
+  target_pid: number;
+  target_kind: string;
+  target_name: string;
+  snapshot?: ProcSnapshot;
+  targets_list?: TargetProcess[];
+}

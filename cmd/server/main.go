@@ -16,6 +16,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
 	"github.com/zhenya/copilot-visualizer/pkg/mcpproxy"
+	"github.com/zhenya/copilot-visualizer/pkg/proctracer"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
 	"github.com/zhenya/copilot-visualizer/pkg/sessionstore"
@@ -29,6 +30,7 @@ func main() {
 	tailPath := flag.String("tail", "", "Optional log file to tail (JSONL)")
 	runMCPProxy := flag.Bool("mcp-proxy", false, "Run as an MCP stdio proxy shim")
 	autoDiscover := flag.Bool("auto-discover", true, "Auto-discover active Antigravity / Copilot / Claude sessions")
+	procTrace := flag.Bool("proc-trace", true, "Auto-trace Linux/WSL assistant processes and system telemetry")
 	demoMode := flag.Bool("demo", false, "Start simulated demo scenario loop (default: auto-discover live sessions)")
 	customStaticDir := flag.String("static", "", "Optional custom static directory override (defaults to embedded UI)")
 	flag.Parse()
@@ -44,6 +46,13 @@ func main() {
 	sessionStore, err := sessionstore.New("")
 	if err != nil {
 		log.Printf("Warning: failed to initialize session store: %v", err)
+	}
+
+	// Initialize Linux/WSL Process Telemetry Tracer
+	procMgr := proctracer.NewManager(eventHub, nil)
+	if *procTrace && procMgr.IsSupported() {
+		procMgr.Start(context.Background())
+		log.Println("⚡ Linux/WSL Process Telemetry tracer active.")
 	}
 
 	// Initialize Auto-Discovery Engine
@@ -92,6 +101,7 @@ func main() {
 	}
 
 	srvHandler := server.NewServer(eventHub, sim, engine, intervMgr, rec, sessionStore, staticFS)
+	srvHandler.SetProcTracer(procMgr)
 	httpServer := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
 		Handler:      srvHandler,
@@ -113,6 +123,7 @@ func main() {
 	<-stopChan
 
 	log.Println("Shutting down gracefully...")
+	procMgr.Stop()
 	engine.StopWatcher()
 	sim.Stop()
 	eventHub.Close()

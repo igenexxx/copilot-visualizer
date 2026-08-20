@@ -63,6 +63,14 @@ export class GoalTrackerEngine {
    * Ingests a new event into the goal tracking stack.
    */
   public processEvent(event: VisualizerEvent): GoalStackTelemetry {
+    if (
+      event.agentId === 'proctracer' ||
+      event.type === 'os.telemetry' ||
+      event.payload?.proctracer_snapshot
+    ) {
+      return this.getTelemetry();
+    }
+
     // 1. Check for root goal update
     if (event.type === 'session.start' || event.type === 'user.prompt') {
       if (event.title) this.rootGoal = event.title;

@@ -45,6 +45,14 @@ export class ContextSaturationEngine {
   }
 
   public processEvent(event: VisualizerEvent): ContextSaturationTelemetry {
+    if (
+      event.agentId === 'proctracer' ||
+      event.type === 'os.telemetry' ||
+      event.payload?.proctracer_snapshot
+    ) {
+      return this.getTelemetry();
+    }
+
     const rawModel = event.payload?.detectedModel || event.payload?.model;
     if (rawModel) {
       this.setModel(String(rawModel));

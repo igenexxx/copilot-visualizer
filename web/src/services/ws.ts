@@ -1,4 +1,4 @@
-import type { VisualizerEvent } from '../types';
+import type { VisualizerEvent, ProcTracerStatus, TargetProcess, ProcSnapshot } from '../types';
 
 export type EventListener = (event: VisualizerEvent) => void;
 export type StatusListener = (connected: boolean) => void;
@@ -402,4 +402,81 @@ export class VisualizerClient {
       body: JSON.stringify(event),
     });
   }
+
+  public async getProcStatus(): Promise<ProcTracerStatus | null> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.GetProcTracerStatus === 'function') {
+      try {
+        return await wailsApp.GetProcTracerStatus();
+      } catch (err) {
+        console.warn('Wails GetProcTracerStatus error:', err);
+      }
+    }
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/proc/status`);
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Failed to fetch proc status:', e);
+    }
+    return null;
+  }
+
+  public async getProcTargets(): Promise<TargetProcess[]> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.GetProcTargets === 'function') {
+      try {
+        return (await wailsApp.GetProcTargets()) || [];
+      } catch (err) {
+        console.warn('Wails GetProcTargets error:', err);
+      }
+    }
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/proc/targets`);
+      if (res.ok) return (await res.json()) || [];
+    } catch (e) {
+      console.warn('Failed to fetch proc targets:', e);
+    }
+    return [];
+  }
+
+  public async attachProcPID(pid: number): Promise<ProcSnapshot | null> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.AttachProcPID === 'function') {
+      try {
+        return await wailsApp.AttachProcPID(pid);
+      } catch (err) {
+        console.warn('Wails AttachProcPID error:', err);
+      }
+    }
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/proc/attach?pid=${pid}`, { method: 'POST' });
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Failed to attach proc PID:', e);
+    }
+    return null;
+  }
+
+  public async getProcSnapshot(): Promise<ProcSnapshot | null> {
+    const wailsApp = (window as any).go?.main?.App;
+    if (wailsApp && typeof wailsApp.GetProcSnapshot === 'function') {
+      try {
+        return await wailsApp.GetProcSnapshot();
+      } catch (err) {
+        console.warn('Wails GetProcSnapshot error:', err);
+      }
+    }
+    const host = window.location.port === '5173' ? 'http://localhost:9876' : '';
+    try {
+      const res = await fetch(`${host}/api/proc/snapshot`);
+      if (res.ok) return await res.json();
+    } catch (e) {
+      console.warn('Failed to fetch proc snapshot:', e);
+    }
+    return null;
+  }
 }
+

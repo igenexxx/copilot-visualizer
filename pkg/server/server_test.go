@@ -13,6 +13,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
+	"github.com/zhenya/copilot-visualizer/pkg/proctracer"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/server"
 	"github.com/zhenya/copilot-visualizer/pkg/sessionstore"
@@ -366,4 +367,54 @@ func TestServer_EnrichmentEndpoints(t *testing.T) {
 	}
 }
 
+func TestServer_ProcEndpoints(t *testing.T) {
+	srv, h, _, _, _, _ := setupTestServer(t)
 
+	// 1. Without procTracer attached
+	req := httptest.NewRequest(http.MethodGet, "/api/proc/status", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/proc/status without tracer, got %d", rec.Code)
+	}
+
+	targetsReq := httptest.NewRequest(http.MethodGet, "/api/proc/targets", nil)
+	targetsRec := httptest.NewRecorder()
+	srv.ServeHTTP(targetsRec, targetsReq)
+	if targetsRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/proc/targets, got %d", targetsRec.Code)
+	}
+
+	snapReq := httptest.NewRequest(http.MethodGet, "/api/proc/snapshot", nil)
+	snapRec := httptest.NewRecorder()
+	srv.ServeHTTP(snapRec, snapReq)
+	if snapRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/proc/snapshot, got %d", snapRec.Code)
+	}
+
+	attachReq := httptest.NewRequest(http.MethodPost, "/api/proc/attach?pid=123", nil)
+	attachRec := httptest.NewRecorder()
+	srv.ServeHTTP(attachRec, attachReq)
+	if attachRec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 on attach without tracer, got %d", attachRec.Code)
+	}
+
+	// 2. With procTracer attached
+	procMgr := proctracer.NewManager(h, nil)
+	srv.SetProcTracer(procMgr)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/api/proc/status", nil)
+	rec2 := httptest.NewRecorder()
+	srv.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on /api/proc/status with tracer, got %d", rec2.Code)
+	}
+
+	// Disallowed method
+	badReq := httptest.NewRequest(http.MethodPost, "/api/proc/status", nil)
+	badRec := httptest.NewRecorder()
+	srv.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 on POST /api/proc/status, got %d", badRec.Code)
+	}
+}

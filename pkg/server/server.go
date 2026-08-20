@@ -13,6 +13,7 @@ import (
 	"github.com/zhenya/copilot-visualizer/pkg/events"
 	"github.com/zhenya/copilot-visualizer/pkg/hub"
 	"github.com/zhenya/copilot-visualizer/pkg/intervention"
+	"github.com/zhenya/copilot-visualizer/pkg/proctracer"
 	"github.com/zhenya/copilot-visualizer/pkg/recorder"
 	"github.com/zhenya/copilot-visualizer/pkg/repotree"
 	"github.com/zhenya/copilot-visualizer/pkg/sessionstore"
@@ -25,6 +26,7 @@ type Server struct {
 	simulator    *simulator.Simulator
 	engine       *autodiscover.Engine
 	enricher     *enricher.Engine
+	procTracer   *proctracer.Manager
 	intervention *intervention.Manager
 	recorder     *recorder.Recorder
 	sessionStore *sessionstore.Store
@@ -59,6 +61,11 @@ func NewServer(
 	return s
 }
 
+// SetProcTracer configures the Linux/WSL process telemetry manager.
+func (s *Server) SetProcTracer(tracer *proctracer.Manager) {
+	s.procTracer = tracer
+}
+
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/ws", s.hub.HandleWebSocket)
 	s.mux.HandleFunc("/api/status", s.handleStatus)
@@ -89,6 +96,12 @@ func (s *Server) registerRoutes() {
 
 	// Repo Tree scanner
 	s.mux.HandleFunc("/api/repo-tree", s.handleRepoTree)
+
+	// Linux/WSL Process Telemetry routes
+	s.mux.HandleFunc("/api/proc/status", s.handleProcStatus)
+	s.mux.HandleFunc("/api/proc/targets", s.handleProcTargets)
+	s.mux.HandleFunc("/api/proc/attach", s.handleProcAttach)
+	s.mux.HandleFunc("/api/proc/snapshot", s.handleProcSnapshot)
 
 	if s.staticFS != nil {
 		fileServer := http.FileServer(http.FS(s.staticFS))
@@ -626,4 +639,83 @@ func (s *Server) handleEnrichmentContext(w http.ResponseWriter, r *http.Request)
 	_ = json.NewEncoder(w).Encode(sCtx)
 }
 
+func (s *Server) handleProcStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if s.procTracer == nil {
+		_ = json.NewEncoder(w).Encode(&proctracer.TracerStatus{Supported: false, Attached: false})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(s.procTracer.GetStatus())
+}
 
+func (s *Server) handleProcTargets(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if s.procTracer == nil {
+		_ = json.NewEncoder(w).Encode([]proctracer.TargetProcess{})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(s.procTracer.GetDiscoveredTargets())
+}
+
+func (s *Server) handleProcAttach(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.procTracer == nil {
+		http.Error(w, "Process tracer not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	pidStr := r.URL.Query().Get("pid")
+	if pidStr == "" {
+		var req struct {
+			PID int `json:"pid"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.PID > 0 {
+			pidStr = strconv.Itoa(req.PID)
+		}
+	}
+
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil || pid <= 0 {
+		http.Error(w, "Valid PID required", http.StatusBadRequest)
+		return
+	}
+
+	snap, err := s.procTracer.AttachPID(pid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(snap)
+}
+
+func (s *Server) handleProcSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if s.procTracer == nil {
+		_ = json.NewEncoder(w).Encode(&proctracer.Snapshot{Supported: false})
+		return
+	}
+	snap, err := s.procTracer.GetSnapshot()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(snap)
+}

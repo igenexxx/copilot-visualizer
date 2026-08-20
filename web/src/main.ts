@@ -16,6 +16,7 @@ import { WaterfallTimelineEngine } from './analytics/waterfall_timeline';
 import { CognitiveHUD } from './ui/cognitive_hud';
 import { MissionControlPanel } from './ui/mission_control';
 import { InventoryModal } from './ui/inventory';
+import { ProcTelemetryPanel } from './ui/proc_telemetry';
 import { getProviderIcon, getProviderLabel, getProviderColor } from './ui/icons';
 
 class App {
@@ -26,6 +27,7 @@ class App {
   private tokenomics: TokenomicsTracker;
   private soundscape: SoundscapeEngine;
   private inventoryModal!: InventoryModal;
+  private procTelemetry!: ProcTelemetryPanel;
 
   // Intelligence & Mission Control Analytics
   private loopDetector = new LoopDetectorEngine();
@@ -692,6 +694,11 @@ class App {
         this.pendingBlastStatus = null;
         this.pendingWaterfallStatus = null;
       }
+    };
+
+    this.procTelemetry = new ProcTelemetryPanel(this.client);
+    this.missionControl.onOpenProcInspector = () => {
+      this.procTelemetry.open();
     };
   }
 
@@ -1402,6 +1409,19 @@ class App {
   }
 
   private handleIncomingEvent(event: VisualizerEvent, isHistory: boolean = false): void {
+    // Process OS Telemetry directly without polluting the event stream or tokenomics
+    if (
+      event.agentId === 'proctracer' ||
+      event.type === 'os.telemetry' ||
+      event.payload?.proctracer_snapshot
+    ) {
+      if (event.payload?.proctracer_snapshot) {
+        this.procTelemetry.updateSnapshot(event.payload.proctracer_snapshot);
+        this.missionControl.updateProcSnapshot(event.payload.proctracer_snapshot);
+      }
+      return;
+    }
+
     if (
       event.sessionId &&
       event.sessionId !== 'global' &&
@@ -1460,6 +1480,12 @@ class App {
     } else if (event.type !== 'checkpoint.request' && event.type !== 'permission.requested' && !effectiveIsHistory) {
       // Automatically dismiss confirmation snackbar once subsequent events arrive
       this.hideConfirmationSnackbar();
+    }
+
+    // Handle Process Telemetry Snapshot
+    if (event.payload?.proctracer_snapshot) {
+      this.procTelemetry.updateSnapshot(event.payload.proctracer_snapshot);
+      this.missionControl.updateProcSnapshot(event.payload.proctracer_snapshot);
     }
 
     // Update stats & RPG & Tokenomics
